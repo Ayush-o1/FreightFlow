@@ -1,6 +1,41 @@
 # FreightFlow — Backend API
 
-FreightFlow is a **logistics SaaS backend** built with Node.js, Express, and MongoDB. It provides a complete role-based platform for managing freight shipments across three user roles — **Shipper**, **Driver**, and **Admin** — with real-time tracking via Socket.io and a simulated payment layer.
+The Node.js/Express REST API and Socket.io server for FreightFlow.
+
+For the full project overview, see the [root README](../README.md).
+
+---
+
+## Quick Start
+
+```bash
+# Install dependencies
+npm install
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your MongoDB URI, JWT secret, and admin credentials
+
+# Seed the admin account (run once)
+node src/scripts/seedAdmin.js
+
+# Start development server (with hot reload)
+npm run dev
+
+# Start production server
+npm start
+```
+
+Server runs on `http://localhost:5000` by default.
+
+---
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start with nodemon (auto-restart on file changes) |
+| `npm start` | Start with plain Node.js |
 
 ---
 
@@ -8,10 +43,10 @@ FreightFlow is a **logistics SaaS backend** built with Node.js, Express, and Mon
 
 | Layer | Technology |
 |---|---|
-| Runtime | Node.js |
+| Runtime | Node.js ≥ 18 |
 | Framework | Express v4 |
-| Database | MongoDB (Mongoose v8) |
-| Authentication | JWT (jsonwebtoken + bcryptjs) |
+| Database | MongoDB via Mongoose v9 |
+| Authentication | JWT + bcryptjs |
 | Real-time | Socket.io v4 |
 | Validation | express-validator |
 | Security | helmet, cors, express-rate-limit |
@@ -19,110 +54,46 @@ FreightFlow is a **logistics SaaS backend** built with Node.js, Express, and Mon
 
 ---
 
-## Running Locally
+## Environment Variables
 
-```bash
-# 1. Clone the repository
-git clone <repo-url>
-cd freightflow-backend
+Copy `.env.example` to `.env` and fill in all values.
 
-# 2. Install dependencies
-npm install
-
-# 3. Configure environment
-cp .env.example .env
-# Open .env and fill in MONGODB_URI, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME
-
-# 4. Seed the admin account
-node src/scripts/seedAdmin.js
-
-# 5. Start the development server
-npm run dev
-# Server runs on http://localhost:5000
-```
+| Variable | Description |
+|---|---|
+| `PORT` | Server port (default: 5000) |
+| `NODE_ENV` | `development` or `production` |
+| `MONGODB_URI` | Full MongoDB connection string |
+| `JWT_SECRET` | Secret for signing JWTs (generate with `openssl rand -hex 32`) |
+| `JWT_EXPIRES_IN` | Token expiry, e.g. `7d` |
+| `CLIENT_URL` | Frontend origin for CORS and Socket.io |
+| `ADMIN_EMAIL` | Email for the seeded admin account |
+| `ADMIN_PASSWORD` | Password for the seeded admin account |
+| `ADMIN_NAME` | Display name for the seeded admin |
 
 ---
 
 ## API Routes
 
-### Auth  (`/api/auth`)
+Full request/response documentation: [`docs/API.md`](../docs/API.md)
 
-| Method | Endpoint | Auth | Role |
-|--------|----------|------|------|
-| POST | `/api/auth/register` | No | — |
-| POST | `/api/auth/login` | No | — |
-| GET | `/api/auth/me` | Yes | Any |
-
-> Auth routes are rate-limited: **10 requests per 15 minutes per IP**.
-
----
-
-### Shipper  (`/api/shipments`)
-
-| Method | Endpoint | Auth | Role |
-|--------|----------|------|------|
-| POST | `/api/shipments` | Yes | Shipper |
-| GET | `/api/shipments/my` | Yes | Shipper |
-| GET | `/api/shipments/:id` | Yes | Shipper / Admin |
-
----
-
-### Admin  (`/api/admin`)
-
-| Method | Endpoint | Auth | Role |
-|--------|----------|------|------|
-| GET | `/api/admin/analytics` | Yes | Admin |
-| GET | `/api/admin/shipments` | Yes | Admin |
-| GET | `/api/admin/shipments/:id` | Yes | Admin |
-| PATCH | `/api/admin/shipments/:id/assign` | Yes | Admin |
-| GET | `/api/admin/users` | Yes | Admin |
-| GET | `/api/admin/drivers` | Yes | Admin |
-
----
-
-### Driver  (`/api/driver`)
-
-| Method | Endpoint | Auth | Role |
-|--------|----------|------|------|
-| GET | `/api/driver/shipments` | Yes | Driver |
-| GET | `/api/driver/shipments/:id` | Yes | Driver |
-| PATCH | `/api/driver/shipments/:id/status` | Yes | Driver |
-
-**Status progression (forward-only):**
-`assigned` → `picked_up` → `in_transit` → `delivered`
-
----
-
-### Payment  (`/api/payments`)
-
-| Method | Endpoint | Auth | Role |
-|--------|----------|------|------|
-| POST | `/api/payments/initiate/:shipmentId` | Yes | Shipper |
-| POST | `/api/payments/confirm/:paymentId` | Yes | Shipper |
-| GET | `/api/payments/:shipmentId` | Yes | Shipper / Admin |
-
-`confirm` body: `{ "simulate": "success" | "failure" }`
+| Prefix | Description | Auth |
+|--------|-------------|------|
+| `GET /api/health` | Server health check | No |
+| `/api/auth` | Register, login, profile | Rate limited |
+| `/api/shipments` | Create and view shipments | Shipper |
+| `/api/driver` | View assignments, update status | Driver |
+| `/api/admin` | Analytics, user/shipment management, assign drivers | Admin |
+| `/api/payments` | Initiate and confirm simulated payments | Shipper |
 
 ---
 
 ## Socket.io Events
 
-Connect to the server at `ws://localhost:5000`.
+Room naming: `shipment_<shipmentId>`
 
-### Client → Server
+**Client → Server:** `joinShipmentRoom`, `leaveShipmentRoom`
 
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `joinShipmentRoom` | `{ shipmentId }` | Join a private room for a shipment |
-| `leaveShipmentRoom` | `{ shipmentId }` | Leave a shipment room |
-
-### Server → Client
-
-| Event | Payload | Trigger |
-|-------|---------|---------|
-| `driverAssigned` | `{ shipmentId, driverId, driverName, status, message, timestamp }` | Admin assigns driver |
-| `statusUpdated` | `{ shipmentId, newStatus, updatedBy, role, note, timestamp }` | Driver updates status |
-| `shipmentDelivered` | `{ shipmentId, message, timestamp }` | Status reaches `delivered` |
+**Server → Client:** `statusUpdated`, `shipmentDelivered`, `driverAssigned`
 
 ---
 
@@ -130,59 +101,19 @@ Connect to the server at `ws://localhost:5000`.
 
 ```
 freightflow-backend/
-├── .env                        # Local environment variables (not committed)
-├── .env.example                # Environment template
-├── server.js                   # Entry point — HTTP server + Socket.io boot
+├── server.js               # Entry point
+├── .env.example            # Environment template
 └── src/
-    ├── app.js                  # Express app, middleware, route mounting
-    ├── config/
-    │   └── db.js               # MongoDB connection
-    ├── controllers/
-    │   ├── authController.js
-    │   ├── shipmentController.js
-    │   ├── adminController.js
-    │   ├── driverController.js
-    │   └── paymentController.js
-    ├── middlewares/
-    │   ├── auth.js             # protect, authorizeRoles
-    │   ├── errorHandler.js     # notFound, errorHandler
-    │   └── validateObjectId.js # MongoDB ObjectId param guard
-    ├── models/
-    │   ├── User.js
-    │   ├── Shipment.js
-    │   └── Payment.js
-    ├── routes/
-    │   ├── authRoutes.js
-    │   ├── shipmentRoutes.js
-    │   ├── adminRoutes.js
-    │   ├── driverRoutes.js
-    │   └── paymentRoutes.js
-    ├── scripts/
-    │   └── seedAdmin.js        # One-time admin account seeder
-    ├── services/
-    │   ├── paymentService.js   # generateMockTransactionId()
-    │   ├── socketService.js    # initSocket(), room management
-    │   └── notificationService.js  # Mock email notifications (console.log)
-    └── utils/
-        ├── responseFormatter.js  # successResponse(), errorResponse()
-        ├── getIO.js              # Socket.io singleton (setIO, getIO)
-        └── httpStatus.js         # HTTP status code constants
+    ├── app.js              # Express setup, middleware, routes
+    ├── config/db.js        # MongoDB connection
+    ├── controllers/        # Route handlers
+    ├── middlewares/        # auth, errorHandler, validateObjectId
+    ├── models/             # User, Shipment, Payment
+    ├── routes/             # Express routers
+    ├── scripts/seedAdmin.js
+    ├── services/           # socketService, paymentService, notificationService
+    └── utils/              # responseFormatter, getIO, httpStatus
 ```
-
----
-
-## Roles & Permissions Summary
-
-| Action | Shipper | Driver | Admin |
-|--------|---------|--------|-------|
-| Register / Login | ✅ | ✅ | Seed only |
-| Create shipment | ✅ | ❌ | ❌ |
-| View own shipments | ✅ | ❌ | ❌ |
-| View all shipments | ❌ | ❌ | ✅ |
-| Assign driver | ❌ | ❌ | ✅ |
-| Update delivery status | ❌ | ✅ | ❌ |
-| Initiate / confirm payment | ✅ | ❌ | ❌ |
-| View analytics | ❌ | ❌ | ✅ |
 
 ---
 
@@ -190,9 +121,6 @@ freightflow-backend/
 
 ```
 pending → assigned → picked_up → in_transit → delivered
-                                             ↘ cancelled (admin)
 ```
 
----
-
-*Backend built across 8 phases — ready for frontend integration.*
+Driver status updates are forward-only and enforced server-side.

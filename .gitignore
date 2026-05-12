@@ -27,6 +27,10 @@ Thumbs.db
 .vscode/
 .idea/
 
+# ── Smoke test scripts (dev-only, not part of the production codebase) ────────
+freightflow-backend/smokeTest*.js
+
 # ── Misc ─────────────────────────────────────────────────────────────────────
 *.pem
 .npm
+
