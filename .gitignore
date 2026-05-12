@@ -1,0 +1,32 @@
+# ── Dependencies ─────────────────────────────────────────────────────────────
+node_modules/
+client/node_modules/
+freightflow-backend/node_modules/
+
+# ── Build output ──────────────────────────────────────────────────────────────
+client/dist/
+client/build/
+
+# ── Environment files (NEVER commit secrets) ─────────────────────────────────
+.env
+.env.local
+.env.*.local
+freightflow-backend/.env
+client/.env
+client/.env.local
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── OS / Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ── Misc ─────────────────────────────────────────────────────────────────────
+*.pem
+.npm
