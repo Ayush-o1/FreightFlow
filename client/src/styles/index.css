@@ -37,6 +37,7 @@
 
   /* --- Layout dimensions --- */
   --sidebar-width:        260px;
+  --sidebar-collapsed:    64px;
   --topbar-height:        64px;
 
   /* --- Shadows --- */
@@ -110,4 +111,23 @@ input, select, textarea {
 /* Dropdown shadow shortcut */
 .dropdown-shadow {
   box-shadow: var(--shadow-dropdown);
+}
+
+/* --------------------------------------------------------------------------
+   PAGE TRANSITION — Subtle fade-in on every page mount
+   Used via className="animate-fadeIn" on page content wrappers.
+   -------------------------------------------------------------------------- */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out forwards;
 }

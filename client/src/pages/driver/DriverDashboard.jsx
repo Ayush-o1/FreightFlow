@@ -17,7 +17,7 @@ import Card             from '../../components/ui/Card';
 import Badge            from '../../components/ui/Badge';
 import Button           from '../../components/ui/Button';
 import EmptyState       from '../../components/ui/EmptyState';
-import { useAuth }      from '../../context/AuthContext';
+import { useAuth }      from '../../hooks/useAuth';
 import { getMyAssignments } from '../../api/driverApi';
 import { formatDate, formatStatus, getStatusVariant } from '../../utils/formatters';
 

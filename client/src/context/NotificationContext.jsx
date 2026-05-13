@@ -10,7 +10,7 @@
  *      toasts: [{ id, type, message, duration }]
  *      Auto-removed after `duration` ms. Max 5 visible at once.
  *
- * In-memory only — clears on page refresh (intentional for Phase 7).
+ * In-memory only — clears on page refresh by design.
  *
  * Wrap order in main.jsx:
  *   <AuthProvider>

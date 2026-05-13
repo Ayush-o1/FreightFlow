@@ -1,29 +1,67 @@
 /**
  * NotFound.jsx — 404 page
- * Shown for any route that doesn't match a defined path.
+ * Role-aware redirect: logged-in users go to their dashboard.
+ * Unauthenticated users see a "Go to Login" button.
  */
 
 import { useNavigate } from 'react-router-dom';
-import { PackageX } from 'lucide-react';
+import { Truck } from 'lucide-react';
 import Button from '../components/ui/Button';
+import { useAuth } from '../hooks/useAuth';
+
+const ROLE_DASHBOARD = {
+  shipper: '/shipper/dashboard',
+  driver:  '/driver/dashboard',
+  admin:   '/admin/dashboard',
+};
 
 export default function NotFound() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const handleHome = () => {
+    if (user?.role) {
+      navigate(ROLE_DASHBOARD[user.role] ?? '/login');
+    } else {
+      navigate('/login');
+    }
+  };
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 text-center"
-         style={{ backgroundColor: 'var(--color-bg)' }}>
-      <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-[var(--color-primary-light)]">
-        <PackageX size={36} color="var(--color-primary)" />
+    <div
+      className="min-h-screen flex flex-col items-center justify-center px-4 text-center"
+      style={{ backgroundColor: 'var(--color-bg)' }}
+    >
+      {/* FreightFlow wordmark */}
+      <div className="mb-10 flex items-center gap-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-primary)]">
+          <Truck size={16} color="white" />
+        </div>
+        <span
+          className="text-base font-bold text-[var(--color-text-primary)]"
+          style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+        >
+          FreightFlow
+        </span>
       </div>
-      <h1 className="mb-2 text-4xl font-bold text-[var(--color-text-primary)]">404</h1>
-      <p className="mb-1 text-lg font-semibold text-[var(--color-text-primary)]">
+
+      {/* 404 number */}
+      <p
+        className="text-8xl font-extrabold leading-none mb-4"
+        style={{ color: 'var(--color-primary)', fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+      >
+        404
+      </p>
+
+      <h1 className="mb-2 text-2xl font-bold text-[var(--color-text-primary)]">
         Page not found
-      </p>
+      </h1>
       <p className="mb-8 max-w-sm text-sm text-[var(--color-text-secondary)]">
-        The page you're looking for doesn't exist or has been moved.
+        The page you&apos;re looking for doesn&apos;t exist or has been moved.
       </p>
-      <Button variant="primary" onClick={() => navigate(-1)}>
-        Go back
+
+      <Button variant="primary" onClick={handleHome}>
+        {user ? 'Go to Dashboard' : 'Go to Login'}
       </Button>
     </div>
   );

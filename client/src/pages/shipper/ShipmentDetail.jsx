@@ -152,14 +152,18 @@ function StatusTimeline({ currentStatus, statusHistory = [] }) {
           <li key={step} className="flex gap-4">
             {/* Spine */}
             <div className="flex flex-col items-center">
-              <div
-                className={[
-                  'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all',
-                  circleClass,
-                  isCurrent && !isError ? 'animate-pulse' : '',
-                ].join(' ')}
-              >
-                <Icon size={16} />
+              <div className="relative">
+                <div
+                  className={[
+                    'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all',
+                    circleClass,
+                  ].join(' ')}
+                >
+                  <Icon size={16} />
+                </div>
+                {isCurrent && !isError && (
+                  <span className="absolute inset-0 rounded-full ring-4 ring-[var(--color-primary)] ring-opacity-30 animate-pulse pointer-events-none" />
+                )}
               </div>
               {idx < stepsToRender.length - 1 && (
                 <div className={`w-0.5 flex-1 my-1 min-h-[1.5rem] ${lineClass}`} />
@@ -404,7 +408,7 @@ export default function ShipmentDetail() {
         setPayment(payRes.data.data.payment);
       } catch (payErr) {
         if (payErr.response?.status !== 404) {
-          console.warn('Payment fetch error:', payErr.message);
+          console.error('Payment fetch error:', payErr.message);
         }
         setPayment(null);
       }

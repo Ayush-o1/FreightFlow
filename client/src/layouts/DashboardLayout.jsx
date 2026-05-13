@@ -1,15 +1,17 @@
 /**
  * DashboardLayout.jsx
- * Main application shell: fixed dark sidebar + fixed topbar + scrollable content.
+ * Main application shell: responsive sidebar + fixed topbar + scrollable content.
  *
- * Phase 2 update: reads real user from AuthContext.
- *   - Nav links driven by user.role
- *   - Avatar shows real initials from user.name via getInitials()
- *   - Role badge shows user.role
- *   - Logout wired to logout(navigate) from AuthContext
+ * Sidebar behaviour:
+ *   Mobile  (< 768px):   hidden by default; hamburger opens as left overlay.
+ *   Tablet  (768–1023px): icon-only collapsed sidebar (64px wide, icons only).
+ *   Desktop (≥ 1024px):  full sidebar (260px, icons + labels).
+ *
+ * Body scroll is locked while mobile overlay is open.
+ * Logout button lives inside the sidebar on mobile; in the topbar on desktop.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   Truck,
@@ -19,12 +21,11 @@ import {
   Users,
   ClipboardList,
   UserCheck,
-  BarChart3,
   Menu,
   X,
   LogOut,
 } from 'lucide-react';
-import Badge              from '../components/ui/Badge';
+import Badge             from '../components/ui/Badge';
 import NotificationBell  from '../components/shared/NotificationBell';
 import ToastContainer    from '../components/shared/ToastContainer';
 import { useAuth }       from '../hooks/useAuth';
@@ -47,29 +48,32 @@ const navConfig = {
     { label: 'All Shipments', to: '/admin/shipments',      icon: Package },
     { label: 'Users',         to: '/admin/users',          icon: Users },
     { label: 'Assign Driver', to: '/admin/assign-driver',  icon: UserCheck },
-    { label: 'Reports',       to: '/admin/reports',        icon: BarChart3 },
   ],
 };
 
-// ── Sidebar NavLink component ─────────────────────────────────────────────────
-function SidebarLink({ item, onClick }) {
+// ── Sidebar NavLink — adapts to collapsed (tablet) vs expanded (desktop) ─────
+function SidebarLink({ item, collapsed = false, onClick }) {
   const Icon = item.icon;
   return (
     <NavLink
       to={item.to}
       onClick={onClick}
+      title={item.label}
       className={({ isActive }) =>
         [
-          'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium',
+          'flex items-center rounded-lg text-sm font-medium',
           'transition-colors duration-150',
+          collapsed
+            ? 'justify-center p-2.5'
+            : 'gap-3 px-3 py-2.5',
           isActive
-            ? 'bg-[var(--color-sidebar-active)] text-white'
+            ? 'bg-[var(--color-sidebar-active)] text-white border-l-2 border-white/40'
             : 'text-[var(--color-sidebar-text)] hover:bg-[var(--color-sidebar-hover)] hover:text-white',
         ].join(' ')
       }
     >
       <Icon size={18} />
-      <span>{item.label}</span>
+      {!collapsed && <span>{item.label}</span>}
     </NavLink>
   );
 }
@@ -81,66 +85,112 @@ export default function DashboardLayout({ children }) {
   const { user, logout } = useAuth();
 
   // Connect socket for the duration of the dashboard session.
-  // Disconnects automatically when user logs out (useEffect cleanup).
   useSocketConnection();
 
-  // Derive nav links from real role; fall back to shipper if user is null
+  // Lock body scroll when mobile overlay is open
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [sidebarOpen]);
+
   const role     = user?.role ?? 'shipper';
   const navItems = navConfig[role] ?? navConfig.shipper;
 
-  // User display values
   const displayName     = user?.name ?? 'User';
   const displayInitials = getInitials(displayName);
   const displayRole     = role.charAt(0).toUpperCase() + role.slice(1);
 
   const closeSidebar = () => setSidebarOpen(false);
 
-  // ── Sidebar inner content ─────────────────────────────────────────────────
-  const SidebarContent = () => (
+  // ── Shared sidebar nav content ────────────────────────────────────────────
+  // collapsed=false → full (mobile overlay + desktop)
+  // collapsed=true  → icon-only (tablet)
+  const SidebarNav = ({ collapsed = false }) => (
     <div className="flex h-full flex-col">
       {/* Logo */}
-      <div className="flex h-16 shrink-0 items-center gap-2.5 border-b border-slate-700 px-5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-primary)]">
+      <div
+        className={[
+          'flex h-16 shrink-0 items-center border-b border-slate-700',
+          collapsed ? 'justify-center px-0' : 'gap-2.5 px-5',
+        ].join(' ')}
+      >
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--color-primary)]">
           <Truck size={16} color="white" />
         </div>
-        <span
-          className="text-base font-bold text-white"
-          style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-        >
-          FreightFlow
-        </span>
+        {!collapsed && (
+          <span
+            className="text-base font-bold text-white"
+            style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+          >
+            FreightFlow
+          </span>
+        )}
       </div>
 
       {/* Nav links */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+      <nav className={['flex-1 overflow-y-auto py-4 space-y-0.5', collapsed ? 'px-1.5' : 'px-3'].join(' ')}>
         {navItems.map((item) => (
-          <SidebarLink key={item.to} item={item} onClick={closeSidebar} />
+          <SidebarLink
+            key={item.to}
+            item={item}
+            collapsed={collapsed}
+            onClick={closeSidebar}
+          />
         ))}
       </nav>
 
-      {/* User info at bottom */}
-      <div className="shrink-0 border-t border-slate-700 px-5 py-4">
-        <p className="text-xs text-slate-500 uppercase tracking-widest">
-          Logged in as
-        </p>
-        <p className="mt-0.5 text-sm font-semibold text-slate-300 truncate" title={displayName}>
-          {displayName}
-        </p>
-        <p className="text-xs text-slate-500 capitalize">{role}</p>
-      </div>
+      {/* Bottom — user info + logout (full sidebar only) */}
+      {!collapsed && (
+        <div className="shrink-0 border-t border-slate-700 px-5 py-4 space-y-3">
+          <div>
+            <p className="text-xs text-slate-500 uppercase tracking-widest">Logged in as</p>
+            <p className="mt-0.5 text-sm font-semibold text-slate-300 truncate" title={displayName}>
+              {displayName}
+            </p>
+            <p className="text-xs text-slate-500 capitalize">{role}</p>
+          </div>
+          {/* Logout — visible on mobile overlay, hidden on desktop (topbar handles it) */}
+          <button
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-400 hover:bg-slate-700 hover:text-white transition-colors lg:hidden"
+            onClick={() => logout(navigate)}
+          >
+            <LogOut size={16} />
+            Logout
+          </button>
+        </div>
+      )}
+
+      {/* Bottom — collapsed tablet: just a logout icon */}
+      {collapsed && (
+        <div className="shrink-0 border-t border-slate-700 py-3 px-1.5">
+          <button
+            title="Logout"
+            className="flex w-full items-center justify-center rounded-lg p-2.5 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"
+            onClick={() => logout(navigate)}
+          >
+            <LogOut size={18} />
+          </button>
+        </div>
+      )}
     </div>
   );
 
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--color-bg)]">
-      {/* ── Mobile overlay sidebar ───────────────────────────────────────── */}
+      {/* ── Mobile overlay sidebar (< 768px) ─────────────────────────────── */}
       {sidebarOpen && (
-        <div className="fixed inset-0 z-40 flex lg:hidden">
+        <div className="fixed inset-0 z-40 flex md:hidden">
+          {/* Backdrop */}
           <div
             className="fixed inset-0 bg-black/50 backdrop-blur-sm"
             onClick={closeSidebar}
             aria-hidden="true"
           />
+          {/* Sidebar panel */}
           <div
             className="relative z-50 flex w-[260px] flex-col"
             style={{ backgroundColor: 'var(--color-sidebar-bg)' }}
@@ -152,55 +202,63 @@ export default function DashboardLayout({ children }) {
             >
               <X size={20} />
             </button>
-            <SidebarContent />
+            <SidebarNav collapsed={false} />
           </div>
         </div>
       )}
 
-      {/* ── Desktop fixed sidebar ────────────────────────────────────────── */}
+      {/* ── Tablet icon-only sidebar (768px – 1023px) ─────────────────────── */}
       <aside
-        className="hidden lg:flex lg:flex-col"
+        className="hidden md:flex lg:hidden flex-col shrink-0"
         style={{
-          width: 'var(--sidebar-width)',
-          minWidth: 'var(--sidebar-width)',
+          width: 'var(--sidebar-collapsed)',
           backgroundColor: 'var(--color-sidebar-bg)',
         }}
       >
-        <SidebarContent />
+        <SidebarNav collapsed={true} />
+      </aside>
+
+      {/* ── Desktop full sidebar (≥ 1024px) ──────────────────────────────── */}
+      <aside
+        className="hidden lg:flex lg:flex-col shrink-0"
+        style={{
+          width: 'var(--sidebar-width)',
+          backgroundColor: 'var(--color-sidebar-bg)',
+        }}
+      >
+        <SidebarNav collapsed={false} />
       </aside>
 
       {/* ── Main area ────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         {/* Topbar */}
         <header
           className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] bg-white px-4 lg:px-6"
           style={{ height: 'var(--topbar-height)' }}
         >
-          {/* Left: hamburger + wordmark (mobile) */}
+          {/* Left: hamburger (mobile only) + wordmark (mobile only) */}
           <div className="flex items-center gap-3">
             <button
-              className="flex lg:hidden items-center justify-center rounded-md p-2 text-[var(--color-text-secondary)] hover:bg-gray-100"
+              className="flex md:hidden items-center justify-center rounded-md p-2 text-[var(--color-text-secondary)] hover:bg-gray-100"
               onClick={() => setSidebarOpen(true)}
               aria-label="Open sidebar"
             >
               <Menu size={20} />
             </button>
             <span
-              className="text-sm font-semibold text-[var(--color-text-primary)] lg:hidden"
+              className="text-sm font-semibold text-[var(--color-text-primary)] md:hidden"
               style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
             >
               FreightFlow
             </span>
           </div>
 
-          {/* Right: role badge + notification bell + avatar + logout */}
+          {/* Right: role badge + bell + avatar + logout (desktop only) */}
           <div className="flex items-center gap-3">
             <Badge label={displayRole} variant="info" />
-
-            {/* Notification bell */}
             <NotificationBell />
 
-            {/* Avatar with real initials */}
+            {/* Avatar with initials */}
             <div
               className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-primary)] text-xs font-semibold text-white select-none"
               title={displayName}
@@ -208,26 +266,28 @@ export default function DashboardLayout({ children }) {
               {displayInitials}
             </div>
 
-            {/* Logout button */}
+            {/* Logout — desktop only (mobile logout lives in sidebar) */}
             <button
               id="topbar-logout-btn"
-              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-gray-100 transition-colors"
+              className="hidden lg:flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-gray-100 transition-colors active:scale-95"
               onClick={() => logout(navigate)}
               title="Log out"
             >
               <LogOut size={15} />
-              <span className="hidden sm:inline">Logout</span>
+              <span>Logout</span>
             </button>
           </div>
         </header>
 
-        {/* Page content */}
+        {/* Page content — animate-fadeIn triggers on each page mount */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
-          {children}
+          <div className="animate-fadeIn">
+            {children}
+          </div>
         </main>
       </div>
 
-      {/* Global toast overlay — fixed position, renders above everything */}
+      {/* Global toast overlay */}
       <ToastContainer />
     </div>
   );

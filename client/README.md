@@ -1,36 +1,10 @@
-# FreightFlow — Frontend
+# FreightFlow — Client
 
-The React single-page application for FreightFlow.
+> Modern B2B freight and logistics management platform — React frontend.
 
-For the full project overview and API documentation, see the [root README](../README.md).
+## Description
 
----
-
-## Quick Start
-
-```bash
-# Install dependencies
-npm install
-
-# Configure environment
-cp .env.example .env
-# Set VITE_API_BASE_URL to your backend URL
-
-# Start development server
-npm run dev
-# App runs at http://localhost:5173
-```
-
----
-
-## Scripts
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start Vite development server |
-| `npm run build` | Build for production |
-| `npm run preview` | Preview the production build locally |
-| `npm run lint` | Run ESLint |
+FreightFlow is a full-stack logistics SaaS platform connecting **shippers**, **drivers**, and **administrators** in real time. This directory contains the React frontend client built with Vite and Tailwind CSS v4.
 
 ---
 
@@ -38,59 +12,159 @@ npm run dev
 
 | Layer | Technology |
 |---|---|
-| Framework | React 18 |
-| Bundler | Vite 5 |
-| Routing | React Router v7 |
-| Styling | Tailwind CSS v4 |
-| HTTP | Axios |
-| Real-time | socket.io-client v4 |
-| Icons | lucide-react |
+| Framework | React 18 + Vite 5 |
+| Routing | React Router v6 |
+| Styling | Tailwind CSS v4 + custom CSS design tokens |
+| HTTP | Axios (single `axiosInstance`) |
+| Real-time | Socket.IO client |
+| Icons | Lucide React |
+| Utilities | clsx |
+
+---
+
+## Prerequisites
+
+- Node.js ≥ 18
+- npm ≥ 9
+- FreightFlow backend running (see `../freightflow-backend`)
+
+---
+
+## Setup & Development
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/your-username/FreightFlow.git
+cd FreightFlow/client
+
+# 2. Install dependencies
+npm install
+
+# 3. Configure environment
+cp .env.example .env
+# Edit .env and set VITE_API_BASE_URL to your backend URL
+
+# 4. Start the dev server
+npm run dev
+# App runs at http://localhost:5173
+```
 
 ---
 
 ## Environment Variables
 
-| Variable | Description | Example |
+| Variable | Description | Default |
 |---|---|---|
-| `VITE_API_BASE_URL` | Backend API base URL | `http://localhost:5000` |
+| `VITE_API_BASE_URL` | Base URL of the FreightFlow backend API | `http://localhost:5001` |
+
+Create a `.env` file at `client/.env`:
+
+```env
+VITE_API_BASE_URL=http://localhost:5001
+```
+
+> ⚠️ Never commit `.env` to version control. It is listed in `.gitignore`.
 
 ---
 
-## Pages by Role
+## Running Backend + Frontend Together
 
-### Shipper
-- Login / Register
-- Dashboard — shipment summary stats
-- Shipment list — all own shipments with status
-- Shipment detail — full status timeline, driver info, payment
-- Create shipment
+```bash
+# Terminal 1 — Backend (from repo root or freightflow-backend/)
+cd freightflow-backend
+npm install
+npm run dev        # Runs on http://localhost:5001
 
-### Driver
-- Dashboard — active delivery cards, recent completions
-- Assignments — full list with inline status update
+# Terminal 2 — Frontend
+cd client
+npm run dev        # Runs on http://localhost:5173
+```
 
-### Admin
-- Dashboard — platform analytics, recent users and shipments
-- All shipments — paginated table with filters and driver assignment
-- Users — full user list with role filter and search
-- Assign driver — select a driver for a pending shipment
+---
+
+## Build for Production
+
+```bash
+npm run build      # Output in client/dist/
+npm run preview    # Preview production build locally
+```
+
+> **Note:** In production, configure your web server (Nginx, Caddy, etc.) to serve `dist/index.html` for all routes — React Router requires this for client-side routing to work correctly.
 
 ---
 
 ## Folder Structure
 
 ```
-client/src/
-├── api/           # Axios modules: adminApi, shipmentApi, driverApi, paymentApi
-├── components/
-│   ├── shared/    # NotificationBell, ToastContainer, PageHeader
-│   └── ui/        # Badge, Button, Card, Input, Select, Spinner, EmptyState
-├── context/       # AuthContext, NotificationContext
-├── hooks/         # useAuth, useNotification
-├── layouts/       # AuthLayout, DashboardLayout
-├── pages/         # auth/, shipper/, driver/, admin/
-├── routes/        # AppRouter, ProtectedRoute
-├── socket/        # socketClient singleton, useSocket hooks
-├── styles/        # index.css with Tailwind tokens
-└── utils/         # formatters (date, currency, status)
+client/
+├── public/
+│   └── favicon.svg          # SVG favicon
+├── src/
+│   ├── api/                 # Axios API helpers (shipmentApi, driverApi, adminApi, paymentApi)
+│   ├── components/
+│   │   ├── shared/          # NotificationBell, ToastContainer, PageHeader
+│   │   └── ui/              # Badge, Button, Card, Input, Select, Spinner, EmptyState
+│   ├── context/             # AuthContext, NotificationContext
+│   ├── hooks/               # useAuth, useNotification
+│   ├── layouts/             # DashboardLayout (responsive), AuthLayout
+│   ├── pages/
+│   │   ├── admin/           # AdminDashboard, AdminShipments, AdminUsers, AssignDriver
+│   │   ├── auth/            # LoginPage, RegisterPage
+│   │   ├── driver/          # DriverDashboard, DriverShipments
+│   │   ├── shipper/         # ShipperDashboard, ShipmentList, ShipmentDetail, CreateShipment
+│   │   ├── NotFound.jsx
+│   │   └── NotAuthorized.jsx
+│   ├── routes/              # AppRouter, ProtectedRoute
+│   ├── socket/              # useSocket (Socket.IO hooks)
+│   ├── styles/              # index.css (design tokens + Tailwind)
+│   └── utils/               # formatters.js (formatDate, formatStatus, etc.)
+├── .env                     # Local environment (gitignored)
+├── .env.example             # Environment variable template
+├── index.html               # HTML entry point
+└── vite.config.js           # Vite configuration
 ```
+
+---
+
+## Available Routes by Role
+
+### Public
+| Route | Description |
+|---|---|
+| `/login` | Login page |
+| `/register` | Registration page |
+| `/unauthorized` | Access denied page |
+
+### Shipper (role: `shipper`)
+| Route | Description |
+|---|---|
+| `/shipper/dashboard` | Overview stats + recent shipments |
+| `/shipper/shipments` | All shipments with filter & search |
+| `/shipper/shipments/create` | Create a new shipment |
+| `/shipper/shipments/:id` | Shipment detail + payment flow |
+
+### Driver (role: `driver`)
+| Route | Description |
+|---|---|
+| `/driver/dashboard` | Active deliveries + stats |
+| `/driver/shipments` | All assignments + inline status update |
+
+### Admin (role: `admin`)
+| Route | Description |
+|---|---|
+| `/admin/dashboard` | Platform-wide analytics |
+| `/admin/shipments` | All shipments with search & filter |
+| `/admin/users` | All registered users |
+| `/admin/assign-driver` | Assign a driver to a pending shipment |
+
+---
+
+## Key Features
+
+- **JWT Authentication** — token stored in `localStorage`, auto-attached via Axios interceptor
+- **Role-based routing** — `ProtectedRoute` enforces access by role
+- **Real-time updates** — Socket.IO events update shipment status live without page refresh
+- **Notification system** — In-app bell + toast stack for socket events
+- **Responsive design** — Mobile overlay sidebar, tablet icon-only sidebar, full desktop sidebar
+- **Skeleton loading** — All data-fetching pages show animated pulse skeletons while loading
+- **Empty & error states** — Every list/table has a proper empty state and retry card on API failure

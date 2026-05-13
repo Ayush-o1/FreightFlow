@@ -11,8 +11,8 @@
  *   Shows "Showing all {count} users" text.
  */
 
-import { useState, useEffect, useMemo } from 'react';
-import { Users, ChevronRight, UserCog } from 'lucide-react';
+import { useState, useEffect, useMemo, Fragment } from 'react';
+import { Users, ChevronRight } from 'lucide-react';
 
 import DashboardLayout from '../../layouts/DashboardLayout';
 import PageHeader      from '../../components/shared/PageHeader';
@@ -204,9 +204,8 @@ export default function AdminUsers() {
                   </tr>
                 ) : (
                   filtered.map((u) => (
-                    <>
+                    <Fragment key={u._id}>
                       <tr
-                        key={u._id}
                         onClick={() => toggleExpanded(u._id)}
                         className="cursor-pointer hover:bg-[var(--color-bg)] transition-colors"
                       >
@@ -244,7 +243,7 @@ export default function AdminUsers() {
                       </tr>
                       {/* Expanded detail row */}
                       {expanded === u._id && <UserDetailRow key={`${u._id}-detail`} user={u} />}
-                    </>
+                    </Fragment>
                   ))
                 )}
               </tbody>

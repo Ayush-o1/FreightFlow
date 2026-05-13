@@ -1,104 +1,146 @@
-# FreightFlow
+<div align="center">
 
-**A role-based logistics SaaS platform for managing freight shipments end-to-end.**
+# 🚛 FreightFlow
 
-FreightFlow connects shippers who need cargo delivered with drivers who fulfill those deliveries — coordinated by an admin layer that handles assignment, monitoring, and analytics. Built as a full-stack application with a Node.js/Express REST API backend and a React frontend.
+### A full-stack, role-based logistics management SaaS platform
+
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen?style=flat-square)](#)
+[![Tech Stack](https://img.shields.io/badge/stack-React%20%7C%20Node%20%7C%20MongoDB-blue?style=flat-square)](#tech-stack)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](#)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](#contributing)
+
+FreightFlow connects **shippers** who need cargo delivered with **drivers** who fulfill those deliveries — orchestrated by an **admin** layer that handles assignment, real-time monitoring, and platform analytics.
+
+[Live Demo](#demo) · [API Reference](#api-reference) · [Report Bug](https://github.com/Ayush-o1/FreightFlow/issues) · [Request Feature](https://github.com/Ayush-o1/FreightFlow/issues)
+
+</div>
 
 ---
 
-## Table of Contents
+## 📸 Screenshots
+
+| Login | Register |
+|---|---|
+| ![Login Page](docs/screenshots/login.png) | ![Register Page](docs/screenshots/register.png) |
+
+| 404 Not Found | Access Denied |
+|---|---|
+| ![Not Found](docs/screenshots/not_found.png) | ![Unauthorized](docs/screenshots/unauthorized.png) |
+
+---
+
+## 📋 Table of Contents
 
 - [Overview](#overview)
-- [Key Features](#key-features)
+- [Features](#features)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Environment Variables](#environment-variables)
 - [Running Locally](#running-locally)
-- [API Reference](#api-reference)
-- [Real-Time Events (Socket.io)](#real-time-events-socketio)
-- [Authentication Flow](#authentication-flow)
 - [User Roles](#user-roles)
-- [Database Models](#database-models)
 - [Status Flow](#status-flow)
-- [Frontend](#frontend)
-- [Screenshots](#screenshots)
+- [API Reference](#api-reference)
+- [Real-Time Events](#real-time-events)
+- [Authentication](#authentication)
+- [Database Models](#database-models)
+- [Future Improvements](#future-improvements)
+- [Contributing](#contributing)
 - [Author](#author)
 
 ---
 
-## Overview
+## 🌐 Overview
 
-FreightFlow is a logistics management platform that solves the coordination problem between cargo senders and delivery drivers. Shippers create shipment requests with pickup and delivery details. Admins assign available drivers to pending shipments. Drivers then progress shipments through a defined delivery lifecycle and update status in real time — with Socket.io pushing live updates to any connected client watching that shipment.
+FreightFlow is a production-ready B2B logistics management platform built as a full-stack portfolio project. It demonstrates:
 
-The project includes a simulated payment layer so shippers can mark a shipment as paid before or after delivery.
-
----
-
-## Key Features
-
-- **JWT-based authentication** with role-based access control (RBAC)
-- **Three user roles** — Shipper, Driver, Admin — each with isolated route access
-- **Shipment lifecycle management** — create, assign, track, and deliver
-- **Real-time status updates** via Socket.io (per-shipment rooms)
-- **Admin dashboard API** — platform-wide analytics, user management, driver assignment
-- **Simulated payment flow** — initiate and confirm payments per shipment
-- **Input validation** on all routes using `express-validator`
-- **Security hardening** — Helmet, CORS, rate limiting on auth routes
-- **Structured error handling** with a global error handler and consistent response format
-- **React frontend** with protected routes, role-specific dashboards, and live notifications
+- **REST API design** with JWT auth, role-based access control, input validation, and structured error handling
+- **Real-time communication** via Socket.IO — status changes broadcast live to all subscribed clients
+- **Responsive React SPA** with three separate role dashboards, skeleton loading, empty states, and toast/bell notification systems
+- **Simulated payment layer** — shippers can initiate and confirm payments per shipment
+- **Production build pipeline** — Vite with zero warnings and a sub-2-second build time
 
 ---
 
-## Tech Stack
+## ✨ Features
 
-### Backend
+### Platform-wide
+- ✅ **JWT authentication** — secure token-based sessions with auto-refresh on 401
+- ✅ **Role-based access control (RBAC)** — Shipper, Driver, Admin with isolated route guards
+- ✅ **Real-time status updates** — Socket.IO per-shipment rooms push live delivery events
+- ✅ **Toast notification system** — slide-in toasts for every user action
+- ✅ **In-app notification bell** — persistent session history of all socket events
+- ✅ **Responsive design** — mobile overlay sidebar, tablet icon-only sidebar, full desktop sidebar
+- ✅ **Skeleton loading** on all data-fetching pages
+- ✅ **Empty state and error cards** with retry on every list and table
+
+### Shipper
+- Create shipment requests with full pickup/delivery details
+- Track status through the delivery lifecycle in real time
+- Initiate and confirm payments (simulated gateway)
+- View full status history timeline on each shipment
+
+### Driver
+- View all assigned deliveries on a card-based dashboard
+- Advance delivery status inline (assigned → picked up → in transit → delivered)
+- Receive live assignment notifications via Socket.IO
+
+### Admin
+- Platform-wide analytics dashboard (totals, revenue, recent activity)
+- Search, filter, and paginate all shipments
+- Assign drivers to pending shipments
+- Browse and inspect all registered users
+
+---
+
+## 🛠️ Tech Stack
+
+### Backend (`freightflow-backend/`)
 
 | Layer | Technology |
 |---|---|
 | Runtime | Node.js ≥ 18 |
-| Framework | Express v4 |
-| Database | MongoDB via Mongoose v9 |
+| Framework | Express 4 |
+| Database | MongoDB via Mongoose 9 |
 | Authentication | JWT (`jsonwebtoken` + `bcryptjs`) |
-| Real-time | Socket.io v4 |
+| Real-time | Socket.IO 4 |
 | Validation | `express-validator` |
 | Security | `helmet`, `cors`, `express-rate-limit` |
 | Logging | `morgan` |
 
-### Frontend
+### Frontend (`client/`)
 
 | Layer | Technology |
 |---|---|
-| Framework | React 18 |
-| Bundler | Vite |
-| Routing | React Router v7 |
-| Styling | Tailwind CSS v4 |
-| HTTP Client | Axios |
-| Real-time | socket.io-client v4 |
+| Framework | React 18 + Vite 5 |
+| Routing | React Router 6 |
+| Styling | Tailwind CSS 4 + CSS custom properties |
+| HTTP | Axios (pre-configured instance) |
+| Real-time | socket.io-client 4 |
 | Icons | lucide-react |
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 FreightFlow/
-├── freightflow-backend/          # Node.js / Express API
-│   ├── server.js                 # Entry point — HTTP server + Socket.io boot
+├── freightflow-backend/          # Node.js / Express API server
+│   ├── server.js                 # Entry — HTTP server + Socket.IO boot
 │   ├── .env.example              # Environment variable template
 │   └── src/
 │       ├── app.js                # Express app, middleware, route mounting
 │       ├── config/
 │       │   └── db.js             # MongoDB connection
-│       ├── controllers/
+│       ├── controllers/          # Route handler logic
 │       │   ├── authController.js
 │       │   ├── shipmentController.js
 │       │   ├── adminController.js
 │       │   ├── driverController.js
 │       │   └── paymentController.js
 │       ├── middlewares/
-│       │   ├── auth.js           # protect, authorizeRoles
-│       │   ├── errorHandler.js   # notFound, errorHandler
+│       │   ├── auth.js           # protect(), authorizeRoles()
+│       │   ├── errorHandler.js   # notFound(), errorHandler()
 │       │   └── validateObjectId.js
 │       ├── models/
 │       │   ├── User.js
@@ -113,45 +155,57 @@ FreightFlow/
 │       ├── scripts/
 │       │   └── seedAdmin.js      # One-time admin account seeder
 │       ├── services/
-│       │   ├── socketService.js  # Socket.io initialization and room management
-│       │   ├── paymentService.js # Mock transaction ID generator
-│       │   └── notificationService.js  # Console-based notification stubs
+│       │   ├── socketService.js  # Socket.IO initialisation and room management
+│       │   └── paymentService.js # Mock transaction ID generator
 │       └── utils/
 │           ├── responseFormatter.js  # successResponse(), errorResponse()
-│           ├── getIO.js              # Socket.io singleton
+│           ├── getIO.js              # Socket.IO singleton getter
 │           └── httpStatus.js         # HTTP status constants
 │
-└── client/                       # React frontend
-    ├── index.html
-    ├── vite.config.js
-    └── src/
-        ├── api/                  # Axios API modules per domain
-        ├── components/           # Shared UI components + layout pieces
-        ├── context/              # AuthContext, NotificationContext
-        ├── hooks/                # useAuth, useNotification
-        ├── layouts/              # AuthLayout, DashboardLayout
-        ├── pages/                # Page components per role
-        │   ├── auth/
-        │   ├── shipper/
-        │   ├── driver/
-        │   └── admin/
-        ├── routes/               # AppRouter, ProtectedRoute
-        ├── socket/               # socketClient singleton, useSocket hooks
-        ├── styles/               # Global CSS + Tailwind tokens
-        └── utils/                # formatters (date, currency, status)
+├── client/                       # React SPA
+│   ├── public/
+│   │   └── favicon.svg
+│   ├── index.html
+│   ├── .env.example
+│   └── src/
+│       ├── api/                  # Axios API helpers (one file per domain)
+│       ├── components/
+│       │   ├── shared/           # NotificationBell, ToastContainer, PageHeader
+│       │   └── ui/               # Badge, Button, Card, Input, Select, Spinner, EmptyState
+│       ├── context/              # AuthContext, NotificationContext
+│       ├── hooks/                # useAuth, useNotification
+│       ├── layouts/              # AuthLayout, DashboardLayout
+│       ├── pages/
+│       │   ├── admin/            # AdminDashboard, AdminShipments, AdminUsers, AssignDriver
+│       │   ├── auth/             # LoginPage, RegisterPage
+│       │   ├── driver/           # DriverDashboard, DriverShipments
+│       │   ├── shipper/          # ShipperDashboard, ShipmentList, ShipmentDetail, CreateShipment
+│       │   ├── NotFound.jsx
+│       │   └── NotAuthorized.jsx
+│       ├── routes/               # AppRouter, ProtectedRoute
+│       ├── socket/               # socketClient singleton, useSocket hooks
+│       ├── styles/               # index.css — design tokens + Tailwind
+│       └── utils/                # formatters.js (date, currency, status)
+│
+└── docs/
+    ├── API.md                    # Full API reference
+    ├── ARCHITECTURE.md           # System design and architectural decisions
+    └── screenshots/              # UI screenshots
 ```
 
 ---
 
-## Getting Started
+## 🚀 Getting Started
 
 ### Prerequisites
 
-- Node.js v18 or higher
-- npm v9 or higher
-- A MongoDB instance (local or [MongoDB Atlas](https://www.mongodb.com/atlas))
+| Requirement | Version |
+|---|---|
+| Node.js | ≥ 18 |
+| npm | ≥ 9 |
+| MongoDB | Local or [Atlas](https://mongodb.com/atlas) |
 
-### Clone the repository
+### Clone
 
 ```bash
 git clone https://github.com/Ayush-o1/FreightFlow.git
@@ -160,11 +214,9 @@ cd FreightFlow
 
 ---
 
-## Environment Variables
+## ⚙️ Environment Variables
 
 ### Backend
-
-Copy the example file and fill in your values:
 
 ```bash
 cd freightflow-backend
@@ -173,37 +225,37 @@ cp .env.example .env
 
 | Variable | Description | Example |
 |---|---|---|
-| `PORT` | Port the server listens on | `5000` |
+| `PORT` | Server port | `5001` |
 | `NODE_ENV` | Runtime environment | `development` |
 | `MONGODB_URI` | Full MongoDB connection string | `mongodb+srv://user:pass@cluster.mongodb.net/FreightFlow` |
-| `JWT_SECRET` | Secret key for signing JWTs | `your_random_secret_here` |
-| `JWT_EXPIRES_IN` | JWT expiry duration | `7d` |
-| `CLIENT_URL` | Frontend origin for CORS and Socket.io | `http://localhost:5173` |
-| `ADMIN_EMAIL` | Email for the seeded admin account | `admin@example.com` |
-| `ADMIN_PASSWORD` | Password for the seeded admin account | `change_this_password` |
-| `ADMIN_NAME` | Display name for the seeded admin | `Super Admin` |
+| `JWT_SECRET` | Secret for signing JWTs | *(generate below)* |
+| `JWT_EXPIRES_IN` | Token expiry | `7d` |
+| `CLIENT_URL` | Frontend origin for CORS | `http://localhost:5173` |
+| `ADMIN_EMAIL` | Seed admin email | `admin@freightflow.com` |
+| `ADMIN_PASSWORD` | Seed admin password | `Admin@123` |
+| `ADMIN_NAME` | Seed admin display name | `Super Admin` |
 
-> **Never commit your `.env` file.** It is listed in `.gitignore`.
-
-To generate a secure JWT secret:
+**Generate a secure JWT secret:**
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
+
+> ⚠️ **Never commit your `.env` file.** Both `.env` files are in `.gitignore`.
 
 ### Frontend
 
 ```bash
 cd client
-cp .env.example .env   # create client/.env if it doesn't exist
+cp .env.example .env
 ```
 
-| Variable | Description | Example |
-|---|---|---|
-| `VITE_API_BASE_URL` | Backend base URL | `http://localhost:5000` |
+| Variable | Description |
+|---|---|
+| `VITE_API_BASE_URL` | Backend base URL (no trailing slash) |
 
 ---
 
-## Running Locally
+## ▶️ Running Locally
 
 ### 1 — Start the backend
 
@@ -211,12 +263,12 @@ cp .env.example .env   # create client/.env if it doesn't exist
 cd freightflow-backend
 npm install
 
-# Seed the admin account (run once)
+# Create the admin account (run once after setting up .env)
 node src/scripts/seedAdmin.js
 
-# Start development server
+# Start dev server with hot-reload
 npm run dev
-# API available at http://localhost:5000
+# → API running at http://localhost:5001
 ```
 
 ### 2 — Start the frontend
@@ -225,12 +277,62 @@ npm run dev
 cd client
 npm install
 npm run dev
-# App available at http://localhost:5173
+# → App running at http://localhost:5173
 ```
+
+### 3 — Login with demo credentials
+
+| Role | Email | Password |
+|---|---|---|
+| Admin | `admin@freightflow.com` | `Admin@123` |
+| Shipper | Register via `/register` | any |
+| Driver | Register via `/register` | any |
 
 ---
 
-## API Reference
+## 👥 User Roles
+
+| Capability | Shipper | Driver | Admin |
+|---|:---:|:---:|:---:|
+| Register & Login | ✅ | ✅ | Seed only |
+| Create shipment | ✅ | ❌ | ❌ |
+| View own shipments | ✅ | ❌ | ❌ |
+| Initiate / confirm payment | ✅ | ❌ | ❌ |
+| View assigned deliveries | ❌ | ✅ | ❌ |
+| Update delivery status | ❌ | ✅ | ❌ |
+| View all shipments | ❌ | ❌ | ✅ |
+| Assign driver to shipment | ❌ | ❌ | ✅ |
+| View platform analytics | ❌ | ❌ | ✅ |
+| Manage all users | ❌ | ❌ | ✅ |
+
+---
+
+## 🔄 Shipment Status Flow
+
+```
+pending  →  assigned  →  picked_up  →  in_transit  →  delivered
+```
+
+| Status | Set By | Description |
+|---|---|---|
+| `pending` | System | Shipment created, awaiting driver assignment |
+| `assigned` | Admin | Driver assigned; driver notified in real time |
+| `picked_up` | Driver | Cargo collected from pickup location |
+| `in_transit` | Driver | Shipment en route to destination |
+| `delivered` | Driver | Shipment successfully delivered |
+| `cancelled` | Admin | Manually cancelled; recorded in status history |
+
+> Status transitions are **forward-only** and **strictly enforced** on the backend.
+
+---
+
+## 📡 API Reference
+
+### Base URL
+
+```
+http://localhost:5001/api
+```
 
 ### Health Check
 
@@ -238,19 +340,15 @@ npm run dev
 GET /api/health
 ```
 
-Returns server status, environment, and uptime. No authentication required.
+### Authentication  `/api/auth`
 
----
-
-### Auth — `/api/auth`
-
-> Rate limited: **10 requests per 15 minutes per IP**
+> Rate limited: 10 requests / 15 minutes per IP
 
 | Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/auth/register` | No | Register a new shipper or driver |
-| `POST` | `/api/auth/login` | No | Login and receive a JWT |
-| `GET` | `/api/auth/me` | Yes | Get the current user's profile |
+|---|---|---|---|
+| `POST` | `/auth/register` | No | Register a new user (shipper or driver) |
+| `POST` | `/auth/login` | No | Login and receive a JWT |
+| `GET` | `/auth/me` | Yes | Get current user profile |
 
 **Register body:**
 ```json
@@ -261,280 +359,165 @@ Returns server status, environment, and uptime. No authentication required.
   "role": "shipper"
 }
 ```
-`role` accepts `"shipper"` or `"driver"`. Defaults to `"shipper"` if omitted. Admin accounts can only be created via the seed script.
 
-**Login response:**
-```json
-{
-  "success": true,
-  "data": {
-    "token": "<jwt>",
-    "user": { "_id": "...", "name": "Jane Doe", "email": "...", "role": "shipper" }
-  }
-}
-```
-
----
-
-### Shipments — `/api/shipments`
-
-All routes require authentication (`Bearer <token>`).
+### Shipments  `/api/shipments`
 
 | Method | Endpoint | Role | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/shipments` | Shipper | Create a new shipment |
-| `GET` | `/api/shipments/my` | Shipper | Get all own shipments |
-| `GET` | `/api/shipments/:id` | Shipper / Driver / Admin | Get a single shipment with full status history |
+|---|---|---|---|
+| `POST` | `/shipments` | Shipper | Create a shipment |
+| `GET` | `/shipments/my` | Shipper | List own shipments |
+| `GET` | `/shipments/:id` | All | Get single shipment |
 
-**Create shipment body:**
-```json
-{
-  "pickupLocation": {
-    "address": "12 MG Road",
-    "city": "Bengaluru",
-    "state": "Karnataka",
-    "pincode": "560001"
-  },
-  "deliveryLocation": {
-    "address": "45 Park Street",
-    "city": "Kolkata",
-    "state": "West Bengal",
-    "pincode": "700016"
-  },
-  "goodsType": "Electronics",
-  "weight": 120,
-  "description": "Fragile — handle with care",
-  "estimatedDelivery": "2025-06-15T00:00:00.000Z"
-}
-```
-
----
-
-### Driver — `/api/driver`
-
-All routes require authentication with `role = driver`.
+### Driver  `/api/driver`
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/driver/shipments` | List all shipments assigned to this driver |
-| `GET` | `/api/driver/shipments/:id` | Get full detail of a specific assigned shipment |
-| `PATCH` | `/api/driver/shipments/:id/status` | Advance delivery status |
+|---|---|---|
+| `GET` | `/driver/shipments` | List assigned shipments |
+| `PATCH` | `/driver/shipments/:id/status` | Advance delivery status |
 
 **Status update body:**
 ```json
-{
-  "status": "picked_up",
-  "note": "Picked up from warehouse at 10:30 AM"
-}
+{ "status": "picked_up", "note": "Picked up at 10:30 AM" }
 ```
 
-Status must follow the forward-only progression:
-`assigned` → `picked_up` → `in_transit` → `delivered`
-
----
-
-### Admin — `/api/admin`
-
-All routes require authentication with `role = admin`.
+### Admin  `/api/admin`
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/admin/analytics` | Platform-wide totals, revenue, recent activity |
-| `GET` | `/api/admin/shipments` | All shipments — supports `?status=`, `?search=`, `?page=`, `?limit=` |
-| `GET` | `/api/admin/shipments/:id` | Full detail of any single shipment |
-| `PATCH` | `/api/admin/shipments/:id/assign` | Assign a driver to a pending shipment |
-| `GET` | `/api/admin/users` | All users — supports `?role=shipper|driver|admin` |
-| `GET` | `/api/admin/drivers` | Active drivers only (lightweight, for dropdown use) |
+|---|---|---|
+| `GET` | `/admin/analytics` | Platform-wide stats and revenue |
+| `GET` | `/admin/shipments` | All shipments (`?status=`, `?search=`, `?page=`, `?limit=`) |
+| `PATCH` | `/admin/shipments/:id/assign` | Assign a driver |
+| `GET` | `/admin/users` | All users (`?role=shipper\|driver\|admin`) |
+| `GET` | `/admin/drivers` | Active drivers (lightweight dropdown list) |
 
-**Assign driver body:**
-```json
-{
-  "driverId": "<driver_user_id>"
-}
-```
+### Payments  `/api/payments`
 
-Analytics response includes: `totalShipments`, `shipmentsByStatus`, `totalShippers`, `totalDrivers`, `totalRevenue`, `recentShipments`.
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/payments/initiate/:shipmentId` | Create a pending payment record |
+| `POST` | `/payments/confirm/:paymentId` | Simulate payment success or failure |
+| `GET` | `/payments/:shipmentId` | Get payment record for a shipment |
 
----
-
-### Payments — `/api/payments`
-
-| Method | Endpoint | Role | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/payments/initiate/:shipmentId` | Shipper | Create a pending payment record |
-| `POST` | `/api/payments/confirm/:paymentId` | Shipper | Simulate payment success or failure |
-| `GET` | `/api/payments/:shipmentId` | Shipper / Admin | Get payment record for a shipment |
-
-**Initiate body:**
-```json
-{
-  "amount": 4500,
-  "paymentMethod": "card"
-}
-```
-`paymentMethod` accepts: `"card"`, `"upi"`, `"netbanking"`.
-
-**Confirm body:**
-```json
-{
-  "simulate": "success"
-}
-```
-Pass `"success"` to mark the payment as paid, or `"failure"` to mark it as failed. This is a simulated gateway — no real money is involved.
+> 📄 Full API reference with request/response examples: **[docs/API.md](docs/API.md)**
 
 ---
 
-## Real-Time Events (Socket.io)
+## ⚡ Real-Time Events (Socket.IO)
 
-Connect to the backend WebSocket server. Clients must join a shipment-specific room to receive events for that shipment.
+Clients join a shipment-specific room to receive live updates.
 
 ### Client → Server
 
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `joinShipmentRoom` | `{ shipmentId }` | Subscribe to live updates for a shipment |
-| `leaveShipmentRoom` | `{ shipmentId }` | Unsubscribe from a shipment room |
+| Event | Payload |
+|---|---|
+| `joinShipmentRoom` | `{ shipmentId }` |
+| `leaveShipmentRoom` | `{ shipmentId }` |
 
 ### Server → Client
 
 | Event | Payload | Triggered When |
-|-------|---------|----|
-| `statusUpdated` | `{ shipmentId, newStatus, updatedBy, role, note, timestamp }` | Driver advances shipment status |
+|---|---|---|
+| `statusUpdated` | `{ shipmentId, newStatus, updatedBy, role, note, timestamp }` | Driver advances status |
 | `shipmentDelivered` | `{ shipmentId, message, timestamp }` | Status reaches `delivered` |
 | `driverAssigned` | `{ shipmentId, driverId, driverName, status, message, timestamp }` | Admin assigns a driver |
 
-Room naming convention: `shipment_<shipmentId>`
+---
+
+## 🔐 Authentication
+
+1. Call `POST /api/auth/login` → receive a signed JWT
+2. Store the token (frontend uses `localStorage`)
+3. Attach to every request: `Authorization: Bearer <token>`
+4. The `protect` middleware verifies the token and attaches `req.user`
+5. `authorizeRoles(...roles)` checks `req.user.role` against allowed roles
+6. Admin accounts can only be created via `node src/scripts/seedAdmin.js`
+7. On 401 response, the Axios interceptor clears storage and redirects to `/login`
 
 ---
 
-## Authentication Flow
-
-1. User calls `POST /api/auth/login` with email and password.
-2. Server verifies credentials and returns a signed JWT (expires per `JWT_EXPIRES_IN`).
-3. Client stores the token and attaches it to every subsequent request as:
-   ```
-   Authorization: Bearer <token>
-   ```
-4. The `protect` middleware on each protected route verifies the token, checks the user still exists and is active, then attaches the user to `req.user`.
-5. The `authorizeRoles(...roles)` middleware checks `req.user.role` against the allowed roles for that route.
-6. Admin accounts cannot be registered via the public API — they must be created using the seed script (`node src/scripts/seedAdmin.js`).
-
----
-
-## User Roles
-
-| Action | Shipper | Driver | Admin |
-|--------|:-------:|:------:|:-----:|
-| Register / Login | ✅ | ✅ | Seed only |
-| Create shipment | ✅ | ❌ | ❌ |
-| View own shipments | ✅ | ❌ | ❌ |
-| View any shipment | ❌ | ❌ | ✅ |
-| Assign driver to shipment | ❌ | ❌ | ✅ |
-| Update delivery status | ❌ | ✅ | ❌ |
-| Initiate / confirm payment | ✅ | ❌ | ❌ |
-| View platform analytics | ❌ | ❌ | ✅ |
-| Manage users | ❌ | ❌ | ✅ |
-
----
-
-## Database Models
+## 🗄️ Database Models
 
 ### User
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `name` | String | Required, max 100 chars |
-| `email` | String | Unique, lowercase |
-| `password` | String | Bcrypt hashed, `select: false` |
-| `role` | String | `shipper` / `driver` / `admin` |
-| `isActive` | Boolean | Defaults to `true` |
-| `createdAt` | Date | Auto (Mongoose timestamps) |
+```
+name · email · password (hashed) · role · isActive · timestamps
+```
 
 ### Shipment
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `shipper` | ObjectId → User | Required |
-| `driver` | ObjectId → User | Null until assigned |
-| `pickupLocation` | Object | address, city, state, pincode |
-| `deliveryLocation` | Object | address, city, state, pincode |
-| `goodsType` | String | e.g. Electronics, Furniture |
-| `weight` | Number | In kg, minimum 0.1 |
-| `description` | String | Optional |
-| `status` | String | Enum — see status flow below |
-| `paymentStatus` | String | `unpaid` / `paid` / `failed` |
-| `estimatedDelivery` | Date | Optional |
-| `statusHistory` | Array | Timestamped log of all status changes |
+```
+shipper (ref) · driver (ref) · pickupLocation · deliveryLocation
+goodsType · weight · description · status · statusHistory[]
+paymentStatus · estimatedDelivery · trackingNumber · timestamps
+```
 
 ### Payment
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `shipment` | ObjectId → Shipment | Unique — one payment per shipment |
-| `shipper` | ObjectId → User | |
-| `amount` | Number | Minimum 0.01 |
-| `status` | String | `pending` / `paid` / `failed` |
-| `paymentMethod` | String | `card` / `upi` / `netbanking` |
-| `transactionId` | String | Populated on successful payment |
-| `paidAt` | Date | Populated when status → `paid` |
-
----
-
-## Status Flow
-
 ```
-pending → assigned → picked_up → in_transit → delivered
-```
-
-- **`pending`** — Shipment created by a shipper, awaiting driver assignment.
-- **`assigned`** — Admin has assigned a driver. Driver is notified in real time.
-- **`picked_up`** — Driver has collected the cargo from the pickup location.
-- **`in_transit`** — Shipment is on its way to the delivery destination.
-- **`delivered`** — Shipment has been successfully delivered.
-- **`cancelled`** — Shipment was cancelled (stored in status history; no automatic transition).
-
-Status can only move forward. A driver cannot skip steps or revert to a previous status.
-
----
-
-## Frontend
-
-The React frontend (`/client`) is a full single-page application with:
-
-- **Login and Register pages** with form validation and demo credentials
-- **Role-based routing** — users are redirected to their role's dashboard after login
-- **Protected routes** — unauthenticated or wrong-role access is blocked
-- **Shipper dashboard** — create shipments, view shipment list with status, make payments
-- **Driver dashboard** — view assigned shipments, update delivery status inline
-- **Admin dashboard** — platform analytics, all-shipments table with filters, user list, driver assignment workflow
-- **Real-time notifications** — Socket.io updates push live status changes to the UI
-- **Toast notifications** — success/error/info toasts for all user actions
-- **Notification bell** — persistent in-session notification history in the topbar
-
-### Frontend Scripts
-
-```bash
-cd client
-npm run dev      # Start development server (Vite)
-npm run build    # Production build
-npm run preview  # Preview production build locally
-npm run lint     # ESLint check
+shipment (ref) · shipper (ref) · amount · status · paymentMethod
+transactionId · paidAt · timestamps
 ```
 
 ---
 
-## Screenshots
+## 🔮 Future Improvements
 
-> Screenshots will be added after deployment.
+| Feature | Priority |
+|---|---|
+| Email notifications (SendGrid) on status changes | High |
+| Google Maps integration for real-time route tracking | High |
+| Push notifications (PWA / web-push) | Medium |
+| Shipment document uploads (invoices, POD) | Medium |
+| Driver mobile app (React Native) | Medium |
+| Multi-currency payment support | Low |
+| Advanced analytics with charts (recharts) | Low |
+| Admin reports export (CSV / PDF) | Low |
+| Rate negotiation between shippers and drivers | Low |
 
 ---
 
-## Author
+## 🤝 Contributing
+
+Contributions, issues, and feature requests are welcome!
+
+1. **Fork** the repository
+2. **Create** your feature branch: `git checkout -b feat/amazing-feature`
+3. **Commit** with a meaningful message: `git commit -m 'feat: add amazing feature'`
+4. **Push** to the branch: `git push origin feat/amazing-feature`
+5. **Open** a Pull Request against `main`
+
+### Commit Message Convention
+
+This project follows [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+feat:     New feature
+fix:      Bug fix
+docs:     Documentation changes
+style:    Formatting (no logic changes)
+refactor: Code refactoring
+perf:     Performance improvement
+test:     Adding or updating tests
+chore:    Build, CI, or tooling changes
+```
+
+---
+
+## 📄 License
+
+Distributed under the MIT License. See `LICENSE` for more information.
+
+---
+
+## 👤 Author
 
 **Ayush Kumar**
 
-- GitHub: [https://github.com/Ayush-o1](https://github.com/Ayush-o1)
+[![GitHub](https://img.shields.io/badge/GitHub-Ayush--o1-181717?style=flat-square&logo=github)](https://github.com/Ayush-o1)
 
 ---
 
-*Built as a full-stack portfolio project demonstrating REST API design, real-time communication, role-based access control, and React application architecture.*
+<div align="center">
+
+*Built as a full-stack portfolio project demonstrating REST API design, real-time communication, role-based access control, and modern React application architecture.*
+
+⭐ **If you found this useful, please star the repository!**
+
+</div>

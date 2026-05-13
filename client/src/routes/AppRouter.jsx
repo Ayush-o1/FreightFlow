@@ -4,11 +4,6 @@
  *
  * ProtectedRoute uses <Outlet /> so role-grouped routes share one guard.
  * Each protected group has its own allowedRoles array.
- *
- * Phase 2 update:
- *   - ProtectedRoute now renders <Outlet /> instead of children
- *   - Routes are nested under role-specific ProtectedRoute parents
- *   - /unauthorized route added
  */
 
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
