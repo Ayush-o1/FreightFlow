@@ -2,6 +2,7 @@
 
 const AuditLog = require('../models/AuditLog');
 const logger = require('../config/logger');
+const { getAuditQueue } = require('../queues');
 
 const SENSITIVE_KEYS = new Set([
   'password',
@@ -31,11 +32,11 @@ const sanitizeMetadata = (value) => {
   }, {});
 };
 
-const recordAuditEvent = (req, event) => {
+const buildAuditPayload = (req, event) => {
   const actor = event.actor ?? req?.user?._id ?? null;
   const actorRole = event.actorRole ?? req?.user?.role ?? null;
 
-  const payload = {
+  return {
     action: event.action,
     status: event.status || 'success',
     actor,
@@ -47,19 +48,36 @@ const recordAuditEvent = (req, event) => {
     userAgent: req?.get?.('user-agent') || null,
     metadata: sanitizeMetadata(event.metadata || {}),
   };
+};
 
-  AuditLog.create(payload).catch((error) => {
-    logger.warn(
-      {
-        err: error,
-        action: payload.action,
-        requestId: payload.requestId,
-      },
-      'Audit log write failed'
-    );
-  });
+const recordAuditEvent = (req, event) => {
+  const payload = buildAuditPayload(req, event);
+
+  getAuditQueue()
+    .add('writeAuditLog', payload, {
+      jobId: payload.requestId
+        ? `audit-${payload.action}-${payload.requestId}-${payload.targetId || 'none'}`
+        : undefined,
+    })
+    .catch((error) => {
+      logger.warn(
+        {
+          err: error,
+          action: payload.action,
+          requestId: payload.requestId,
+        },
+        'Audit log enqueue failed'
+      );
+    });
+};
+
+const recordAuditEventDirect = (req, event) => {
+  const payload = buildAuditPayload(req, event);
+  return AuditLog.create(payload);
 };
 
 module.exports = {
+  buildAuditPayload,
   recordAuditEvent,
+  recordAuditEventDirect,
 };

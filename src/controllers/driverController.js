@@ -3,15 +3,12 @@
 const { validationResult } = require('express-validator');
 const Shipment = require('../models/Shipment');
 const { successResponse, errorResponse } = require('../utils/responseFormatter');
-const { getIO } = require('../utils/getIO');
-const logger = require('../config/logger');
 const {
   OK, BAD_REQUEST, FORBIDDEN, NOT_FOUND, UNPROCESSABLE,
 } = require('../utils/httpStatus');
-const {
-  notifyStatusUpdated,
-  notifyDelivered,
-} = require('../services/notificationService');
+const { getPagination, buildPaginationPayload } = require('../utils/pagination');
+const { invalidateAnalyticsCache } = require('../services/analyticsService');
+const { queueShipmentStatusEvent } = require('../services/shipmentEventService');
 
 // ─── Status progression map (forward-only) ────────────────────────────────────
 // Only statuses in this map are driver-updatable.
@@ -35,6 +32,7 @@ const STATUS_PROGRESSION = {
 const getAssignedShipments = async (req, res, next) => {
   try {
     const { status } = req.query;
+    const { page, limit, skip } = getPagination(req.query);
 
     const filter = { driver: req.user._id };
 
@@ -50,12 +48,18 @@ const getAssignedShipments = async (req, res, next) => {
       filter.status = status;
     }
 
-    const shipments = await Shipment.find(filter)
-      .populate('shipper', 'name email')
-      .sort({ updatedAt: -1 });
+    const [shipments, total] = await Promise.all([
+      Shipment.find(filter)
+        .populate('shipper', 'name email')
+        .sort({ updatedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Shipment.countDocuments(filter),
+    ]);
 
     return successResponse(res, OK, 'Assigned shipments retrieved successfully.', {
-      count: shipments.length,
+      ...buildPaginationPayload({ total, page, limit, count: shipments.length }),
       shipments,
     });
   } catch (error) {
@@ -163,56 +167,44 @@ const updateShipmentStatus = async (req, res, next) => {
       );
     }
 
-    // 6. Apply the status update and push to statusHistory
     const resolvedNote = note || `Status updated to ${requestedStatus} by driver.`;
 
-    shipment.status = requestedStatus;
-    shipment.statusHistory.push({
-      status:    requestedStatus,
-      updatedBy: req.user._id,
-      note:      resolvedNote,
-      timestamp: new Date(),
-    });
-
-    await shipment.save();
-
-    // 7. Re-fetch with fully populated fields for the response
-    const updatedShipment = await Shipment.findById(shipment._id)
+    const updatedShipment = await Shipment.findOneAndUpdate(
+      {
+        _id: id,
+        driver: req.user._id,
+        status: currentStatus,
+      },
+      {
+        $set: { status: requestedStatus },
+        $push: {
+          statusHistory: {
+            status: requestedStatus,
+            updatedBy: req.user._id,
+            note: resolvedNote,
+            timestamp: new Date(),
+          },
+        },
+      },
+      {
+        returnDocument: 'after',
+        runValidators: true,
+      }
+    )
       .populate('shipper', 'name email')
       .populate('driver',  'name email')
       .populate('statusHistory.updatedBy', 'name role');
 
-    // 8. Emit real-time events to anyone watching this shipment room
-    const io = getIO();
-    if (io) {
-      const room = `shipment_${id}`;
-
-      io.to(room).emit('statusUpdated', {
-        shipmentId: id,
-        newStatus:  requestedStatus,
-        updatedBy:  req.user.name,
-        role:       req.user.role,
-        note:       resolvedNote,
-        timestamp:  new Date(),
-      });
-      logger.debug({ shipmentId: id, status: requestedStatus, room }, 'Emitted statusUpdated');
-
-      if (requestedStatus === 'delivered') {
-        io.to(room).emit('shipmentDelivered', {
-          shipmentId: id,
-          message:    'Your shipment has been delivered',
-          timestamp:  new Date(),
-        });
-        logger.debug({ shipmentId: id, room }, 'Emitted shipmentDelivered');
-      }
+    if (!updatedShipment) {
+      return errorResponse(res, BAD_REQUEST, 'Shipment status changed before update could be applied.');
     }
 
-    // 9. Mock email notifications (non-blocking, fire-and-forget)
-    notifyStatusUpdated(updatedShipment, updatedShipment.shipper, requestedStatus);
-
-    if (requestedStatus === 'delivered') {
-      notifyDelivered(updatedShipment, updatedShipment.shipper);
-    }
+    await queueShipmentStatusEvent(updatedShipment, req, {
+      previousStatus: currentStatus,
+      newStatus: requestedStatus,
+      note: resolvedNote,
+    });
+    await invalidateAnalyticsCache();
 
     return successResponse(res, OK, `Shipment status updated to '${requestedStatus}'.`, {
       shipment: updatedShipment,

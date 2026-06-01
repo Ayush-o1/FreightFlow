@@ -30,6 +30,14 @@ const UNSAFE_METHODS = new Set(['post', 'put', 'patch', 'delete']);
 let csrfToken = null;
 let csrfPromise = null;
 
+const IDEMPOTENT_MUTATION_PATTERNS = [
+  /\/api\/payments\/confirm\/[^/]+$/,
+  /\/api\/shipments\/[^/]+\/cancel$/,
+  /\/api\/driver\/shipments\/[^/]+\/status$/,
+  /\/api\/admin\/shipments\/[^/]+\/assign$/,
+  /\/api\/admin\/shipments\/[^/]+\/cancel$/,
+];
+
 const isCsrfEndpoint = (url = '') => url.includes('/api/auth/csrf');
 
 const ensureCsrfToken = async () => {
@@ -50,6 +58,14 @@ const ensureCsrfToken = async () => {
   return csrfPromise;
 };
 
+const buildIdempotencyKey = () => {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
+const needsIdempotencyKey = (url = '') =>
+  IDEMPOTENT_MUTATION_PATTERNS.some((pattern) => pattern.test(url));
+
 export const clearCsrfToken = () => {
   csrfToken = null;
 };
@@ -61,6 +77,10 @@ axiosInstance.interceptors.request.use(async (config) => {
     const token = await ensureCsrfToken();
     config.headers = config.headers || {};
     config.headers['X-CSRF-Token'] = token;
+
+    if (needsIdempotencyKey(config.url) && !config.headers['Idempotency-Key']) {
+      config.headers['Idempotency-Key'] = buildIdempotencyKey();
+    }
   }
 
   return config;

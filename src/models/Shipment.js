@@ -136,7 +136,9 @@ const shipmentSchema = new mongoose.Schema(
 // Speeds up shipper's "my shipments" query and admin's status filter queries
 shipmentSchema.index({ shipper: 1, createdAt: -1 });
 shipmentSchema.index({ driver: 1, status: 1 });
+shipmentSchema.index({ driver: 1, updatedAt: -1 });
 shipmentSchema.index({ status: 1 });
+shipmentSchema.index({ status: 1, updatedAt: 1 });
 // trackingNumber unique sparse index is defined inline on the field above.
 
 // ─── Pre-save Hook: Auto-generate trackingNumber ───────────────────────────────

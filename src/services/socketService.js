@@ -41,6 +41,7 @@
  */
 
 const { Server } = require('socket.io');
+const { createAdapter } = require('@socket.io/redis-adapter');
 const jwt        = require('jsonwebtoken');
 const mongoose   = require('mongoose');
 const User       = require('../models/User');
@@ -48,6 +49,7 @@ const Shipment   = require('../models/Shipment');
 const { setIO }  = require('../utils/getIO');
 const { COOKIE_NAMES, buildAllowedOrigins } = require('../config/security');
 const logger = require('../config/logger');
+const { createRedisDuplicate } = require('../config/redis');
 
 // ── Dev-only logger ───────────────────────────────────────────────────────────
 const isDev = process.env.NODE_ENV !== 'production';
@@ -103,7 +105,15 @@ const emitRoomError = (socket, ack, shipmentId, message) => {
  *
  * @param {import('http').Server} httpServer - The Node.js HTTP server instance
  */
-const initSocket = (httpServer) => {
+const attachRedisAdapter = async (io) => {
+  const pubClient = await createRedisDuplicate();
+  const subClient = await createRedisDuplicate();
+
+  io.adapter(createAdapter(pubClient, subClient));
+  logger.info('Socket.io Redis adapter attached');
+};
+
+const initSocket = async (httpServer) => {
   const allowedOrigins = buildAllowedOrigins();
 
   const io = new Server(httpServer, {
@@ -117,6 +127,8 @@ const initSocket = (httpServer) => {
       methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     },
   });
+
+  await attachRedisAdapter(io);
 
   // ── Store io in singleton so controllers can emit without circular imports ──
   setIO(io);

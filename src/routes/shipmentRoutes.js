@@ -10,6 +10,7 @@ const {
 } = require('../controllers/shipmentController');
 const { protect, authorizeRoles } = require('../middlewares/auth');
 const validateObjectId            = require('../middlewares/validateObjectId');
+const { idempotency }             = require('../middlewares/idempotency');
 
 const router = express.Router();
 
@@ -82,6 +83,7 @@ router.patch(
   '/:id/cancel',
   authorizeRoles('shipper'),
   validateObjectId(),
+  idempotency(),
   cancelShipmentValidation,
   cancelShipment
 );

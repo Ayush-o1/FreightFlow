@@ -14,6 +14,10 @@ credentials enabled.
 Unsafe methods (`POST`, `PUT`, `PATCH`, `DELETE`) require `X-CSRF-Token`.
 Bootstrap it with `GET /api/auth/csrf`.
 
+Critical mutation endpoints also require `Idempotency-Key`. Reusing the same key
+for the same authenticated user and endpoint returns the original successful
+response with `Idempotency-Replayed: true` instead of repeating the side effect.
+
 All responses follow this shape:
 ```json
 {
@@ -46,7 +50,7 @@ Process liveness endpoint. Does not check dependencies.
 
 ### GET `/api/ready`
 
-Readiness endpoint. Verifies MongoDB connection state.
+Readiness endpoint. Verifies MongoDB and Redis connection state.
 
 **Response `200`:**
 ```json
@@ -55,13 +59,14 @@ Readiness endpoint. Verifies MongoDB connection state.
   "data": {
     "ready": true,
     "dependencies": {
-      "mongo": { "ready": true, "state": 1, "stateLabel": "connected" }
+      "mongo": { "ready": true, "state": 1, "stateLabel": "connected" },
+      "redis": { "ready": true, "state": "ready", "urlConfigured": true }
     }
   }
 }
 ```
 
-Returns `503` if MongoDB is not connected.
+Returns `503` if MongoDB or Redis is not connected.
 
 ### GET `/api/health`
 
@@ -73,6 +78,7 @@ Summary endpoint containing liveness, readiness, version, uptime, and dependency
 
 > Login/register are rate limited: 10 requests / 15 minutes / IP.
 > Refresh is rate limited separately: 60 requests / 15 minutes / IP.
+> Rate-limit counters are stored in Redis so limits are shared across instances.
 
 ### GET `/api/auth/csrf`
 
@@ -207,12 +213,13 @@ Returns the currently authenticated user's profile.
 **Role:** Shipper
 
 Returns all shipments created by the authenticated shipper.
+Supports `?status=`, `?page=`, and `?limit=`.
 
 **Response `200`:**
 ```json
 {
   "success": true,
-  "data": { "count": 3, "shipments": [ ... ] }
+  "data": { "total": 3, "page": 1, "limit": 10, "totalPages": 1, "count": 3, "shipments": [ ... ] }
 }
 ```
 
@@ -236,6 +243,8 @@ Cancels the authenticated shipper's own shipment only when its current status is
 { "note": "Optional cancellation note" }
 ```
 
+Requires `Idempotency-Key`.
+
 ---
 
 ## Driver — `/api/driver`
@@ -244,6 +253,7 @@ Cancels the authenticated shipper's own shipment only when its current status is
 **Role:** Driver
 
 Supports optional `?status=assigned|picked_up|in_transit|delivered` query param.
+Also supports `?page=` and `?limit=`.
 
 ---
 
@@ -260,7 +270,11 @@ Supports optional `?status=assigned|picked_up|in_transit|delivered` query param.
 
 Valid status progression: `assigned` → `picked_up` → `in_transit` → `delivered`
 
-Emits `statusUpdated` socket event (and `shipmentDelivered` if delivered) to room `shipment_<id>`.
+Requires `Idempotency-Key`. The state change is atomic and conditionally updates
+only if the shipment is still in the expected previous status.
+
+Persists an outbox event that emits `statusUpdated` socket event (and
+`shipmentDelivered` if delivered) to room `shipment_<id>`.
 
 ---
 
@@ -269,6 +283,7 @@ Emits `statusUpdated` socket event (and `shipmentDelivered` if delivered) to roo
 ### GET `/api/admin/analytics`
 
 Returns platform-wide statistics.
+The response is cached in Redis for `CACHE_TTL` seconds.
 
 **Response `200`:**
 ```json
@@ -283,7 +298,8 @@ Returns platform-wide statistics.
     "totalShippers": 15,
     "totalDrivers": 8,
     "totalRevenue": 125000,
-    "recentShipments": [ ... ]
+    "recentShipments": [ ... ],
+    "cache": "miss"
   }
 }
 ```
@@ -322,7 +338,8 @@ Query params:
 
 Validates: shipment must be `pending`, driver must be `active` with `role = driver`.
 
-Emits `driverAssigned` socket event to room `shipment_<id>`.
+Requires `Idempotency-Key`. The assignment is an atomic conditional update and
+persists an outbox event that emits `driverAssigned` to room `shipment_<id>`.
 
 ---
 
@@ -336,13 +353,14 @@ or otherwise modified beyond `status` and `statusHistory`.
 { "note": "Optional cancellation note" }
 ```
 
-Emits `statusUpdated` socket event to room `shipment_<id>`.
+Requires `Idempotency-Key`. Persists an outbox event that emits `statusUpdated`
+to room `shipment_<id>`.
 
 ---
 
 ### GET `/api/admin/users`
 
-Supports `?role=shipper|driver|admin` query param.
+Supports `?role=shipper|driver|admin`, `?page=`, and `?limit=` query params.
 
 ---
 
@@ -360,7 +378,8 @@ stored refresh token but does not auto-cancel shipments.
 
 ### GET `/api/admin/drivers`
 
-Returns only active drivers. Lightweight response: `{ _id, name, email }`.
+Returns only active drivers. Supports `?page=` and `?limit=`. Lightweight
+response: `{ _id, name, email }`.
 
 ---
 
@@ -379,7 +398,7 @@ Returns only active drivers. Lightweight response: `{ _id, name, email }`.
 
 `paymentMethod`: `"card"` | `"upi"` | `"netbanking"`
 
-Creates a `Payment` record with `status: "pending"`. One payment per shipment — subsequent calls return the existing record.
+Creates a `Payment` record with `status: "pending"`. One payment per shipment — subsequent calls return `409 Conflict`.
 
 ---
 
@@ -394,7 +413,8 @@ Creates a `Payment` record with `status: "pending"`. One payment per shipment �
 Pass `"success"` to mark as paid (generates a mock `transactionId` and sets `paidAt`).
 Pass `"failure"` to mark as failed.
 
-Updates the parent shipment's `paymentStatus` field accordingly.
+Requires `Idempotency-Key`. Updates the parent shipment's `paymentStatus` field
+inside the same MongoDB transaction and prevents double confirmation.
 
 ---
 
@@ -444,4 +464,24 @@ The API writes non-blocking audit records for sensitive business events:
 | `admin.user_deactivated` | Admin deactivates a user |
 | `payment.confirmed` | Payment confirmation succeeds or fails |
 
-Audit logging is failure-safe: failed audit writes are logged but do not break user requests.
+Audit logging is failure-safe and queue-backed: controllers enqueue audit jobs,
+BullMQ retries failures, and failed audit writes do not break user requests.
+
+## Outbox, Queues, And Recovery
+
+Shipment assignment, cancellation, driver status updates, user activation,
+user deactivation, and shipment creation persist `OutboxEvent` records. The
+outbox worker publishes socket events and notification jobs asynchronously.
+
+Operational queues:
+
+| Queue | Purpose |
+|-------|---------|
+| `notificationQueue` | Async notification delivery |
+| `auditQueue` | Async audit writes |
+| `outboxQueue` | Durable event publication |
+| `futurePaymentQueue` | Reserved payment follow-up work |
+| `recoveryQueue` | Scheduled recovery sweeps |
+
+Recovery sweeps re-enqueue pending outbox records, retry failed audit and
+notification jobs, and report stuck payments or stale shipments.

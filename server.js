@@ -10,8 +10,10 @@ const { validateEnv } = require('./src/config/env');
 const logger = require('./src/config/logger');
 const app  = require('./src/app');
 const connectDB    = require('./src/config/db');
+const { connectRedis } = require('./src/config/redis');
 const { initSocket } = require('./src/services/socketService');
 const { shutdown } = require('./src/utils/shutdown');
+const { startWorkers } = require('./src/workers');
 
 const env = validateEnv();
 const PORT = env.PORT;
@@ -25,10 +27,18 @@ const startServer = async () => {
     // 1. Connect to MongoDB
     await connectDB();
 
-    // 2. Initialize Socket.io (must happen after DB is ready, before listen)
-    initSocket(server);
+    // 2. Connect distributed infrastructure
+    await connectRedis();
 
-    // 3. Start listening
+    // 3. Initialize Socket.io (must happen after DB/Redis are ready, before listen)
+    await initSocket(server);
+
+    // 4. Start in-process workers for this monolith deployment mode
+    if (env.QUEUE_WORKERS_ENABLED) {
+      await startWorkers();
+    }
+
+    // 5. Start listening
     server.listen(PORT, () => {
       logger.info(
         {

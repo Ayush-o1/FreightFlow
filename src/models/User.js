@@ -78,6 +78,7 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
 // Compound index for admin/driver-assignment queries that filter by role + isActive.
 // Covers: GET /api/admin/drivers (role:'driver', isActive:true)
 userSchema.index({ role: 1, isActive: 1 });
+userSchema.index({ role: 1, createdAt: -1 });
 userSchema.index(
   { refreshToken: 1 },
   { partialFilterExpression: { refreshToken: { $type: 'string' } } }

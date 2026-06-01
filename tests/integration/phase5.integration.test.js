@@ -12,6 +12,11 @@ const {
   waitFor,
 } = require('../helpers/factories');
 const { connectTestDb, clearTestDb, disconnectTestDb } = require('../setup/testDb');
+const {
+  connectTestRedis,
+  startTestWorkers,
+  stopTestRedis,
+} = require('../setup/testRedis');
 const { startTestServer, stopTestServer } = require('../setup/testServer');
 const User = require('../../src/models/User');
 const Shipment = require('../../src/models/Shipment');
@@ -79,7 +84,9 @@ const joinRoom = (socket, shipmentId) =>
 
 beforeAll(async () => {
   await connectTestDb();
+  await connectTestRedis();
   ({ baseUrl } = await startTestServer());
+  await startTestWorkers();
 });
 
 beforeEach(async () => {
@@ -88,6 +95,7 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await stopTestServer();
+  await stopTestRedis();
   await disconnectTestDb();
 });
 
@@ -377,6 +385,7 @@ describe('health, readiness, and request correlation', () => {
     const ready = await client.get('/api/ready');
     expect(ready.status).toBe(200);
     expect(ready.body.data.dependencies.mongo.ready).toBe(true);
+    expect(ready.body.data.dependencies.redis.ready).toBe(true);
 
     const health = await client.get('/api/health');
     expect(health.status).toBe(200);

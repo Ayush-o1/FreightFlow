@@ -105,8 +105,9 @@ FreightFlow is a production-ready B2B logistics management platform built as a f
 | Authentication | JWT (`jsonwebtoken` + `bcryptjs`) |
 | Real-time | Socket.IO 4 |
 | Validation | `express-validator` |
-| Security | `helmet`, `cors`, `express-rate-limit` |
-| Logging | `morgan` |
+| Security | `helmet`, `cors`, CSRF cookies, Redis-backed rate limits |
+| Distributed infra | Redis, BullMQ, Socket.IO Redis adapter |
+| Logging | `pino`, `pino-http` |
 
 ### Frontend (`client/`)
 
@@ -130,7 +131,8 @@ FreightFlow/
 ├── src/
 │   ├── app.js                # Express app, middleware, route mounting
 │   ├── config/
-│   │   └── db.js             # MongoDB connection
+│   │   ├── db.js             # MongoDB connection
+│   │   └── redis.js          # Redis connection and readiness
 │   ├── controllers/          # Route handler logic
 │   │   ├── authController.js
 │   │   ├── shipmentController.js
@@ -144,7 +146,12 @@ FreightFlow/
 │   ├── models/
 │   │   ├── User.js
 │   │   ├── Shipment.js
-│   │   └── Payment.js
+│   │   ├── Payment.js
+│   │   ├── AuditLog.js
+│   │   └── OutboxEvent.js
+│   ├── queues/               # BullMQ queue definitions
+│   ├── jobs/                 # Queue processors
+│   ├── workers/              # Worker lifecycle
 │   ├── routes/
 │   │   ├── authRoutes.js
 │   │   ├── shipmentRoutes.js
@@ -154,7 +161,9 @@ FreightFlow/
 │   ├── scripts/
 │   │   └── seedAdmin.js      # One-time admin account seeder
 │   ├── services/
-│   │   ├── socketService.js  # Socket.IO initialisation and room management
+│   │   ├── socketService.js  # Socket.IO initialization and room management
+│   │   ├── outboxService.js  # Durable event persistence
+│   │   ├── analyticsService.js # Redis-cached analytics
 │   │   └── paymentService.js # Mock transaction ID generator
 │   └── utils/
 │       ├── responseFormatter.js  # successResponse(), errorResponse()
@@ -203,6 +212,7 @@ FreightFlow/
 | Node.js | ≥ 18 |
 | npm | ≥ 9 |
 | MongoDB | Local or [Atlas](https://mongodb.com/atlas) |
+| Redis | Local, Docker, or managed Redis |
 
 ### Clone
 
@@ -238,6 +248,10 @@ cp .env.example .env
 | `TRUST_PROXY` | Proxy hop count for hosted deployments | `1` on many PaaS hosts |
 | `LOG_LEVEL` | Structured logger level | `info` |
 | `LOG_ENABLED` | Disable logs in test automation when set false | `true` |
+| `REDIS_URL` | Redis connection string for rate limits, queues, cache, sockets | `redis://localhost:6379` |
+| `QUEUE_CONCURRENCY` | BullMQ worker concurrency | `2` |
+| `CACHE_TTL` | Analytics cache TTL in seconds | `300` |
+| `QUEUE_WORKERS_ENABLED` | Start in-process workers with the API | `true` |
 | `ADMIN_EMAIL` | Seed admin email — set your own, never commit | *(your-admin@example.com)* |
 | `ADMIN_PASSWORD` | Seed admin password — must be strong, never commit | *(choose a strong password)* |
 | `ADMIN_NAME` | Seed admin display name | `Super Admin` |
@@ -269,6 +283,9 @@ cp .env.example .env
 ```bash
 # (run from the repository root — not a subdirectory)
 npm install
+
+# Start Redis locally if you do not already have one
+docker run --rm -p 6379:6379 redis:7-alpine
 
 # Create the admin account (run once after setting up .env)
 node src/scripts/seedAdmin.js
@@ -352,8 +369,9 @@ GET /api/ready
 GET /api/health
 ```
 
-`/api/live` reports process liveness. `/api/ready` verifies MongoDB connectivity.
-`/api/health` returns a summary with `live`, `ready`, `version`, and uptime.
+`/api/live` reports process liveness. `/api/ready` verifies MongoDB and Redis
+connectivity. `/api/health` returns a summary with `live`, `ready`, `version`,
+uptime, and dependency state.
 
 ### Authentication  `/api/auth`
 
@@ -419,6 +437,14 @@ GET /api/health
 | `POST` | `/payments/confirm/:paymentId` | Simulate payment success or failure |
 | `GET` | `/payments/:shipmentId` | Get payment record for a shipment |
 
+Critical mutation endpoints require `Idempotency-Key`:
+
+- `PATCH /shipments/:id/cancel`
+- `PATCH /driver/shipments/:id/status`
+- `PATCH /admin/shipments/:id/assign`
+- `PATCH /admin/shipments/:id/cancel`
+- `POST /payments/confirm/:paymentId`
+
 > 📄 Full API reference with request/response examples: **[docs/API.md](docs/API.md)**
 
 ---
@@ -444,6 +470,9 @@ or an admin can subscribe to a shipment room.
 | `shipmentDelivered` | `{ shipmentId, message, timestamp }` | Status reaches `delivered` |
 | `driverAssigned` | `{ shipmentId, driverId, driverName, status, message, timestamp }` | Admin assigns a driver |
 
+Socket.IO uses the Redis adapter so shipment-room events propagate across
+multiple API instances.
+
 ---
 
 ## 🔐 Authentication
@@ -458,6 +487,19 @@ or an admin can subscribe to a shipment room.
 
 ---
 
+## ⚙️ Distributed Operations
+
+- Redis stores rate-limit counters, idempotency records, analytics cache entries,
+  BullMQ queues, and Socket.IO pub/sub state.
+- BullMQ queues handle notifications, audit writes, outbox publishing, future
+  payment jobs, and recovery sweeps.
+- Shipment assignment, cancellation, delivery updates, user status changes, and
+  payment confirmations write durable outbox/audit records before async work runs.
+- Recovery jobs re-enqueue pending outbox events, retry failed audit/notification
+  jobs, and report stale shipments or stuck payments.
+- Admin analytics are cached in Redis for 5 minutes and invalidated after shipment,
+  payment, and user-status mutations.
+
 ## ✅ Testing And Coverage
 
 ### Backend
@@ -470,8 +512,9 @@ npm run test:coverage  # Coverage report in coverage/
 
 The backend test harness uses `mongodb-memory-server` with `MongoMemoryReplSet`,
 so payment transaction tests run against a transaction-capable MongoDB replica set.
-Coverage gates enforce at least 70% global statement coverage and 85%+ statement
-coverage on auth-critical modules.
+Redis must be available at `REDIS_URL`; CI provides a Redis service container.
+Coverage gates enforce at least 80% global statement coverage, 70% branch
+coverage, and 85%+ statement coverage on auth-critical modules.
 
 ### Frontend
 
@@ -494,7 +537,7 @@ focuses on auth hydration, protected route behavior, CSRF headers, and refresh r
 - Error responses include `requestId` for correlation.
 - API logs use structured `pino` / `pino-http` output.
 - Sensitive values such as cookies, Authorization headers, passwords, JWTs, and refresh hashes are redacted.
-- Audit events are written non-blockingly and never break user requests.
+- Audit events are queued through BullMQ and never block user requests.
 
 Audited events:
 
@@ -513,6 +556,7 @@ GitHub Actions runs on pushes and pull requests to `main`.
 
 Backend CI:
 - install
+- Redis service container
 - syntax checks
 - tests
 - coverage

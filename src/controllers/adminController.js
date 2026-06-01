@@ -3,16 +3,19 @@
 const mongoose = require('mongoose');
 const { validationResult } = require('express-validator');
 const Shipment  = require('../models/Shipment');
-const Payment   = require('../models/Payment');
 const User      = require('../models/User');
 const { successResponse, errorResponse } = require('../utils/responseFormatter');
-const { getIO } = require('../utils/getIO');
-const logger = require('../config/logger');
 const {
   OK, BAD_REQUEST, NOT_FOUND, CONFLICT, FORBIDDEN, UNPROCESSABLE,
 } = require('../utils/httpStatus');
-const { notifyDriverAssigned } = require('../services/notificationService');
 const { recordAuditEvent } = require('../services/auditLogService');
+const { getPagination, buildPaginationPayload } = require('../utils/pagination');
+const { getAdminAnalytics, invalidateAnalyticsCache } = require('../services/analyticsService');
+const {
+  queueShipmentAssignedEvent,
+  queueShipmentCancelledEvent,
+  queueUserStatusNotification,
+} = require('../services/shipmentEventService');
 
 /**
  * Escapes all regex metacharacters in a string so it is safe to pass
@@ -35,11 +38,8 @@ const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  */
 const getAllShipments = async (req, res, next) => {
   try {
-    const { status, search, page = 1, limit = 10 } = req.query;
-
-    const pageNum  = Math.max(1, parseInt(page,  10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
-    const skip     = (pageNum - 1) * limitNum;
+    const { status, search } = req.query;
+    const { page, limit, skip } = getPagination(req.query);
 
     const filter = {};
 
@@ -57,7 +57,7 @@ const getAllShipments = async (req, res, next) => {
     if (search) {
       const safeSearch   = escapeRegex(String(search).trim());
       const regex        = new RegExp(safeSearch, 'i');
-      const matchedUsers = await User.find({ name: regex }, '_id');
+      const matchedUsers = await User.find({ name: regex }, '_id').lean();
       const matchedIds   = matchedUsers.map((u) => u._id);
 
       filter.$or = [
@@ -73,15 +73,13 @@ const getAllShipments = async (req, res, next) => {
         .populate('driver',  'name email')
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limitNum),
+        .limit(limit)
+        .lean(),
       Shipment.countDocuments(filter),
     ]);
 
     return successResponse(res, OK, 'Shipments retrieved successfully.', {
-      total,
-      page:       pageNum,
-      totalPages: Math.ceil(total / limitNum),
-      count:      shipments.length,
+      ...buildPaginationPayload({ total, page, limit, count: shipments.length }),
       shipments,
     });
   } catch (error) {
@@ -100,6 +98,7 @@ const getAllShipments = async (req, res, next) => {
 const getAllUsers = async (req, res, next) => {
   try {
     const { role } = req.query;
+    const { page, limit, skip } = getPagination(req.query, { limit: 20 });
 
     const filter     = {};
     const validRoles = ['shipper', 'driver', 'admin'];
@@ -114,10 +113,18 @@ const getAllUsers = async (req, res, next) => {
       filter.role = role;
     }
 
-    const users = await User.find(filter).sort({ createdAt: -1 });
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .select('_id name email role isActive createdAt updatedAt')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      User.countDocuments(filter),
+    ]);
 
     return successResponse(res, OK, 'Users retrieved successfully.', {
-      count: users.length,
+      ...buildPaginationPayload({ total, page, limit, count: users.length }),
       users,
     });
   } catch (error) {
@@ -135,12 +142,21 @@ const getAllUsers = async (req, res, next) => {
  */
 const getAllDrivers = async (req, res, next) => {
   try {
-    const drivers = await User.find({ role: 'driver', isActive: true })
+    const { page, limit, skip } = getPagination(req.query, { limit: 100 });
+    const filter = { role: 'driver', isActive: true };
+
+    const [drivers, total] = await Promise.all([
+      User.find(filter)
       .select('_id name email')
-      .sort({ name: 1 });
+        .sort({ name: 1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      User.countDocuments(filter),
+    ]);
 
     return successResponse(res, OK, 'Drivers retrieved successfully.', {
-      count: drivers.length,
+      ...buildPaginationPayload({ total, page, limit, count: drivers.length }),
       drivers,
     });
   } catch (error) {
@@ -191,49 +207,44 @@ const assignDriver = async (req, res, next) => {
       return errorResponse(res, BAD_REQUEST, 'Cannot assign an inactive driver.');
     }
 
-    const shipment = await Shipment.findById(id);
+    const shipment = await Shipment.findOneAndUpdate(
+      { _id: id, status: 'pending' },
+      {
+        $set: {
+          driver: driverId,
+          status: 'assigned',
+        },
+        $push: {
+          statusHistory: {
+            status: 'assigned',
+            updatedBy: req.user._id,
+            note: note?.trim() || 'Driver assigned by admin',
+            timestamp: new Date(),
+          },
+        },
+      },
+      {
+        returnDocument: 'after',
+        runValidators: true,
+      }
+    );
 
     if (!shipment) {
-      return errorResponse(res, NOT_FOUND, 'Shipment not found.');
-    }
-
-    if (shipment.status !== 'pending') {
+      const existingShipment = await Shipment.findById(id).select('status').lean();
+      if (!existingShipment) {
+        return errorResponse(res, NOT_FOUND, 'Shipment not found.');
+      }
       return errorResponse(
         res, CONFLICT,
-        `Cannot assign a driver to a shipment with status '${shipment.status}'. Only 'pending' shipments can be assigned.`
+        `Cannot assign a driver to a shipment with status '${existingShipment.status}'. Only 'pending' shipments can be assigned.`
       );
     }
-
-    shipment.driver = driverId;
-    shipment.status = 'assigned';
-    shipment.statusHistory.push({
-      status:    'assigned',
-      updatedBy: req.user._id,
-      note:      note?.trim() || 'Driver assigned by admin',
-      timestamp: new Date(),
-    });
-
-    await shipment.save();
 
     await shipment.populate('shipper', 'name email');
     await shipment.populate('driver',  'name email');
 
-    // ── Real-time Socket.io emit ──────────────────────────────────────────────
-    const io = getIO();
-    if (io) {
-      io.to(`shipment_${id}`).emit('driverAssigned', {
-        shipmentId: id,
-        driverId,
-        driverName: driver.name,
-        status:     'assigned',
-        message:    'A driver has been assigned to your shipment',
-        timestamp:  new Date(),
-      });
-      logger.debug({ shipmentId: id, driverId, room: `shipment_${id}` }, 'Emitted driverAssigned');
-    }
-
-    // ── Mock email notification ───────────────────────────────────────────────
-    notifyDriverAssigned(shipment, shipment.shipper, driver);
+    await queueShipmentAssignedEvent(shipment, driver, req);
+    await invalidateAnalyticsCache();
 
     recordAuditEvent(req, {
       action: 'shipment.assigned',
@@ -273,51 +284,52 @@ const cancelShipmentAsAdmin = async (req, res, next) => {
     const { id } = req.params;
     const { note } = req.body;
 
-    const shipment = await Shipment.findById(id);
+    const resolvedNote = note?.trim() || 'Shipment cancelled by admin.';
 
-    if (!shipment) {
+    const existingShipment = await Shipment.findById(id).select('status').lean();
+    if (!existingShipment) {
       return errorResponse(res, NOT_FOUND, 'Shipment not found.');
     }
-
-    if (shipment.status === 'cancelled') {
+    if (existingShipment.status === 'cancelled') {
       return errorResponse(res, BAD_REQUEST, 'Shipment is already cancelled.');
     }
 
-    const previousStatus = shipment.status;
-    const resolvedNote = note?.trim() || 'Shipment cancelled by admin.';
+    const previousStatus = existingShipment.status;
 
-    shipment.status = 'cancelled';
-    shipment.statusHistory.push({
-      status: 'cancelled',
-      updatedBy: req.user._id,
-      note: resolvedNote,
-      timestamp: new Date(),
-    });
-
-    await shipment.save();
-
-    const updatedShipment = await Shipment.findById(shipment._id)
+    const updatedShipment = await Shipment.findOneAndUpdate(
+      { _id: id, status: { $ne: 'cancelled' } },
+      {
+        $set: { status: 'cancelled' },
+        $push: {
+          statusHistory: {
+            status: 'cancelled',
+            updatedBy: req.user._id,
+            note: resolvedNote,
+            timestamp: new Date(),
+          },
+        },
+      },
+      { returnDocument: 'after', runValidators: true }
+    )
       .populate('shipper', 'name email')
       .populate('driver', 'name email')
       .populate('statusHistory.updatedBy', 'name role');
 
-    const io = getIO();
-    if (io) {
-      io.to(`shipment_${id}`).emit('statusUpdated', {
-        shipmentId: id,
-        previousStatus,
-        newStatus: 'cancelled',
-        updatedBy: req.user.name,
-        role: req.user.role,
-        note: resolvedNote,
-        timestamp: new Date(),
-      });
+    if (!updatedShipment) {
+      return errorResponse(res, CONFLICT, 'Shipment status changed before cancellation could be applied.');
     }
+
+    await queueShipmentCancelledEvent(updatedShipment, req, {
+      previousStatus,
+      cancelledBy: 'admin',
+      note: resolvedNote,
+    });
+    await invalidateAnalyticsCache();
 
     recordAuditEvent(req, {
       action: 'shipment.cancelled',
       targetType: 'Shipment',
-      targetId: shipment._id,
+      targetId: updatedShipment._id,
       metadata: {
         cancelledBy: 'admin',
         previousStatus,
@@ -370,65 +382,11 @@ const getShipmentById = async (req, res, next) => {
  */
 const getAnalytics = async (req, res, next) => {
   try {
-    // Run all queries in parallel for speed
-    const [
-      totalShipments,
-      shipmentStatusAgg,
-      totalShippers,
-      totalDrivers,
-      revenueAgg,
-      recentShipments,
-    ] = await Promise.all([
-      // 1. Total shipment count
-      Shipment.countDocuments(),
-
-      // 2. Shipments grouped by status
-      Shipment.aggregate([
-        { $group: { _id: '$status', count: { $sum: 1 } } },
-      ]),
-
-      // 3. Total shippers
-      User.countDocuments({ role: 'shipper' }),
-
-      // 4. Total drivers
-      User.countDocuments({ role: 'driver' }),
-
-      // 5. Total revenue from paid payments
-      Payment.aggregate([
-        { $match: { status: 'paid' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } },
-      ]),
-
-      // 6. Last 5 shipments with shipper info
-      Shipment.find({})
-        .populate('shipper', 'name email')
-        .select('_id goodsType status createdAt shipper')
-        .sort({ createdAt: -1 })
-        .limit(5),
-    ]);
-
-    // Normalise status aggregation into a fixed-shape object
-    const shipmentsByStatus = {
-      pending:    0,
-      assigned:   0,
-      picked_up:  0,
-      in_transit: 0,
-      delivered:  0,
-      cancelled:  0,
-    };
-    shipmentStatusAgg.forEach(({ _id, count }) => {
-      if (_id in shipmentsByStatus) shipmentsByStatus[_id] = count;
-    });
-
-    const totalRevenue = revenueAgg.length > 0 ? revenueAgg[0].total : 0;
+    const { analytics, cache } = await getAdminAnalytics();
 
     return successResponse(res, OK, 'Analytics retrieved successfully.', {
-      totalShipments,
-      shipmentsByStatus,
-      totalShippers,
-      totalDrivers,
-      totalRevenue,
-      recentShipments,
+      ...analytics,
+      cache,
     });
   } catch (error) {
     next(error);
@@ -469,14 +427,24 @@ const updateUserStatus = async (req, res, next) => {
       );
     }
 
-    const user = await User.findById(id);
-
-    if (!user) {
-      return errorResponse(res, NOT_FOUND, 'User not found.');
+    const update = {
+      isActive,
+    };
+    if (!isActive) {
+      update.refreshToken = null;
     }
 
-    // No-op guard: status is already the desired value
-    if (user.isActive === isActive) {
+    const user = await User.findOneAndUpdate(
+      { _id: id, isActive: { $ne: isActive } },
+      { $set: update },
+      { returnDocument: 'after', runValidators: false }
+    ).select('_id name email role isActive createdAt updatedAt');
+
+    if (!user) {
+      const existingUser = await User.findById(id).select('_id isActive').lean();
+      if (!existingUser) {
+        return errorResponse(res, NOT_FOUND, 'User not found.');
+      }
       const stateLabel = isActive ? 'active' : 'inactive';
       return errorResponse(
         res,
@@ -485,17 +453,8 @@ const updateUserStatus = async (req, res, next) => {
       );
     }
 
-    user.isActive = isActive;
-
-    // Deactivating: invalidate the user's refresh token to force session termination.
-    // Their access token will expire naturally (up to JWT_EXPIRES_IN).
-    // On the next request after expiry, the refresh call will return 403 and log them out.
-    if (!isActive) {
-      user.refreshToken = null;
-    }
-
-    await user.save({ validateBeforeSave: false });
-
+    await queueUserStatusNotification(user, req);
+    await invalidateAnalyticsCache();
     recordAuditEvent(req, {
       action: isActive ? 'admin.user_activated' : 'admin.user_deactivated',
       targetType: 'User',

@@ -20,6 +20,10 @@ const envSchema = z.object({
   COOKIE_DOMAIN: z.string().optional(),
   TRUST_PROXY: z.string().optional(),
   ACCESS_TOKEN_COOKIE_MAX_AGE_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  REDIS_URL: z.string().url('REDIS_URL must be a valid Redis URL.'),
+  QUEUE_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(2),
+  CACHE_TTL: z.coerce.number().int().min(30).max(3600).default(300),
+  QUEUE_WORKERS_ENABLED: z.boolean().default(true),
 });
 
 let cachedEnv = null;
@@ -33,6 +37,7 @@ const validateEnv = () => {
       process.env.NODE_ENV === 'production'
     ),
     COOKIE_SAME_SITE: String(process.env.COOKIE_SAME_SITE || 'strict').toLowerCase(),
+    QUEUE_WORKERS_ENABLED: parseBoolean(process.env.QUEUE_WORKERS_ENABLED, true),
   };
 
   const parsed = envSchema.safeParse(merged);
@@ -66,6 +71,10 @@ const validateEnv = () => {
   process.env.COOKIE_SECURE = String(env.COOKIE_SECURE);
   process.env.COOKIE_SAME_SITE = env.COOKIE_SAME_SITE;
   process.env.ACCESS_TOKEN_COOKIE_MAX_AGE_MS = String(env.ACCESS_TOKEN_COOKIE_MAX_AGE_MS);
+  process.env.REDIS_URL = env.REDIS_URL;
+  process.env.QUEUE_CONCURRENCY = String(env.QUEUE_CONCURRENCY);
+  process.env.CACHE_TTL = String(env.CACHE_TTL);
+  process.env.QUEUE_WORKERS_ENABLED = String(env.QUEUE_WORKERS_ENABLED);
 
   cachedEnv = env;
   return env;

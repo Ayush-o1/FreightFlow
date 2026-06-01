@@ -43,6 +43,7 @@ describe('axiosInstance', () => {
       .onPatch('/api/shipments/1/cancel')
       .reply((config) => {
         expect(config.headers['X-CSRF-Token']).toBe('new-token');
+        expect(config.headers['Idempotency-Key']).toBeTruthy();
         return [200, { success: true }];
       });
 

@@ -44,10 +44,14 @@ class TestClient {
 
     if (cookie) req.set('Cookie', cookie);
     if (options.requestId) req.set('X-Request-ID', options.requestId);
+    if (options.idempotencyKey) req.set('Idempotency-Key', options.idempotencyKey);
 
     const unsafe = ['post', 'put', 'patch', 'delete'].includes(method);
     if (unsafe && options.csrf !== false && this.csrfToken) {
       req.set('X-CSRF-Token', this.csrfToken);
+    }
+    if (unsafe && options.idempotency !== false && !options.idempotencyKey) {
+      req.set('Idempotency-Key', `test-${method}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     }
 
     if (body !== undefined) req.send(body);

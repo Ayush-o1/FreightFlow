@@ -4,9 +4,13 @@ const { validationResult } = require('express-validator');
 const Shipment = require('../models/Shipment');
 const { successResponse, errorResponse } = require('../utils/responseFormatter');
 const { OK, CREATED, BAD_REQUEST, FORBIDDEN, NOT_FOUND, UNPROCESSABLE } = require('../utils/httpStatus');
-const { notifyShipmentCreated } = require('../services/notificationService');
-const { getIO } = require('../utils/getIO');
 const { recordAuditEvent } = require('../services/auditLogService');
+const { getPagination, buildPaginationPayload } = require('../utils/pagination');
+const { invalidateAnalyticsCache } = require('../services/analyticsService');
+const {
+  queueShipmentCancelledEvent,
+  queueShipmentCreatedEvent,
+} = require('../services/shipmentEventService');
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  CREATE SHIPMENT
@@ -51,8 +55,8 @@ const createShipment = async (req, res, next) => {
       statusHistory:    [initialHistory],
     });
 
-    // Fire-and-forget mock notification (non-blocking)
-    notifyShipmentCreated(shipment, req.user);
+    await queueShipmentCreatedEvent(shipment, req);
+    await invalidateAnalyticsCache();
 
     return successResponse(res, CREATED, 'Shipment created successfully.', { shipment });
   } catch (error) {
@@ -72,6 +76,7 @@ const createShipment = async (req, res, next) => {
 const getMyShipments = async (req, res, next) => {
   try {
     const { status } = req.query;
+    const { page, limit, skip } = getPagination(req.query);
 
     const filter = { shipper: req.user._id };
 
@@ -87,12 +92,18 @@ const getMyShipments = async (req, res, next) => {
       filter.status = status;
     }
 
-    const shipments = await Shipment.find(filter)
-      .populate('driver', 'name email')
-      .sort({ createdAt: -1 });
+    const [shipments, total] = await Promise.all([
+      Shipment.find(filter)
+        .populate('driver', 'name email')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Shipment.countDocuments(filter),
+    ]);
 
     return successResponse(res, OK, 'Shipments retrieved successfully.', {
-      count: shipments.length,
+      ...buildPaginationPayload({ total, page, limit, count: shipments.length }),
       shipments,
     });
   } catch (error) {
@@ -165,14 +176,14 @@ const cancelShipment = async (req, res, next) => {
     const { id }  = req.params;
     const { note } = req.body;
 
-    const shipment = await Shipment.findById(id);
+    const existingShipment = await Shipment.findById(id).select('shipper status').lean();
 
-    if (!shipment) {
+    if (!existingShipment) {
       return errorResponse(res, NOT_FOUND, 'Shipment not found.');
     }
 
     // Ownership check — only the shipper who created it can cancel
-    if (shipment.shipper.toString() !== req.user._id.toString()) {
+    if (existingShipment.shipper.toString() !== req.user._id.toString()) {
       return errorResponse(
         res,
         FORBIDDEN,
@@ -181,52 +192,53 @@ const cancelShipment = async (req, res, next) => {
     }
 
     // State guard — only pending shipments can be cancelled
-    if (shipment.status !== 'pending') {
+    if (existingShipment.status !== 'pending') {
       return errorResponse(
         res,
         BAD_REQUEST,
-        `Only 'pending' shipments can be cancelled. Current status is '${shipment.status}'.`
+        `Only 'pending' shipments can be cancelled. Current status is '${existingShipment.status}'.`
       );
     }
 
     const resolvedNote = note?.trim() || 'Shipment cancelled by shipper.';
 
-    const previousStatus = shipment.status;
-
-    shipment.status = 'cancelled';
-    shipment.statusHistory.push({
-      status:    'cancelled',
-      updatedBy: req.user._id,
-      note:      resolvedNote,
-      timestamp: new Date(),
-    });
-
-    await shipment.save();
+    const previousStatus = existingShipment.status;
 
     // Re-fetch fully populated for the response
-    const updatedShipment = await Shipment.findById(shipment._id)
+    const updatedShipment = await Shipment.findOneAndUpdate(
+      { _id: id, shipper: req.user._id, status: 'pending' },
+      {
+        $set: { status: 'cancelled' },
+        $push: {
+          statusHistory: {
+            status: 'cancelled',
+            updatedBy: req.user._id,
+            note: resolvedNote,
+            timestamp: new Date(),
+          },
+        },
+      },
+      { returnDocument: 'after', runValidators: true }
+    )
       .populate('shipper', 'name email')
       .populate('driver',  'name email')
       .populate('statusHistory.updatedBy', 'name role');
 
-    // Emit real-time update to anyone watching this shipment room
-    const io = getIO();
-    if (io) {
-      io.to(`shipment_${id}`).emit('statusUpdated', {
-        shipmentId: id,
-        previousStatus,
-        newStatus:  'cancelled',
-        updatedBy:  req.user.name,
-        role:       req.user.role,
-        note:       resolvedNote,
-        timestamp:  new Date(),
-      });
+    if (!updatedShipment) {
+      return errorResponse(res, BAD_REQUEST, 'Shipment status changed before cancellation could be applied.');
     }
+
+    await queueShipmentCancelledEvent(updatedShipment, req, {
+      previousStatus,
+      cancelledBy: 'shipper',
+      note: resolvedNote,
+    });
+    await invalidateAnalyticsCache();
 
     recordAuditEvent(req, {
       action: 'shipment.cancelled',
       targetType: 'Shipment',
-      targetId: shipment._id,
+      targetId: updatedShipment._id,
       metadata: {
         cancelledBy: 'shipper',
         previousStatus,

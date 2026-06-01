@@ -5,6 +5,7 @@ const Payment  = require('../models/Payment');
 const Shipment = require('../models/Shipment');
 const { generateMockTransactionId } = require('../services/paymentService');
 const { recordAuditEvent } = require('../services/auditLogService');
+const { invalidateAnalyticsCache } = require('../services/analyticsService');
 const { successResponse, errorResponse } = require('../utils/responseFormatter');
 const {
   OK, CREATED, BAD_REQUEST, FORBIDDEN, NOT_FOUND, CONFLICT, UNPROCESSABLE,
@@ -106,6 +107,7 @@ const initiatePayment = async (req, res, next) => {
         { session }
       );
     });
+    await invalidateAnalyticsCache();
 
     return successResponse(res, CREATED, 'Payment initiated successfully.', { payment });
   } catch (error) {
@@ -147,14 +149,13 @@ const confirmPayment = async (req, res, next) => {
       );
     }
 
-    // 2. Find the payment
-    const payment = await Payment.findById(paymentId).session(session);
-    if (!payment) {
+    const existingPayment = await Payment.findById(paymentId).session(session);
+    if (!existingPayment) {
       return errorResponse(res, NOT_FOUND, 'Payment record not found.');
     }
 
     // 3. Ownership check
-    if (payment.shipper.toString() !== req.user._id.toString()) {
+    if (existingPayment.shipper.toString() !== req.user._id.toString()) {
       return errorResponse(
         res,
         FORBIDDEN,
@@ -163,36 +164,64 @@ const confirmPayment = async (req, res, next) => {
     }
 
     // 4. Guard: can only confirm a pending payment
-    if (payment.status !== 'pending') {
+    if (existingPayment.status !== 'pending') {
       return errorResponse(
         res,
         BAD_REQUEST,
-        `Payment cannot be confirmed. Current status is '${payment.status}'.`
+        `Payment cannot be confirmed. Current status is '${existingPayment.status}'.`
       );
     }
 
     // 5. Atomic update — payment status + shipment paymentStatus in one transaction
+    let payment;
     await session.withTransaction(async () => {
-      if (simulate === 'success') {
-        payment.status        = 'paid';
-        payment.transactionId = generateMockTransactionId();
-        payment.paidAt        = new Date();
-      } else {
-        payment.status = 'failed';
+      const paymentUpdate = simulate === 'success'
+        ? {
+            status: 'paid',
+            transactionId: generateMockTransactionId(),
+            paidAt: new Date(),
+          }
+        : {
+            status: 'failed',
+          };
+
+      payment = await Payment.findOneAndUpdate(
+        {
+          _id: paymentId,
+          shipper: req.user._id,
+          status: 'pending',
+        },
+        { $set: paymentUpdate },
+        {
+          returnDocument: 'after',
+          runValidators: true,
+          session,
+        }
+      );
+
+      if (!payment) {
+        throw new Error('Payment status changed before confirmation could be applied.');
       }
-      await payment.save({ session });
 
       const newPaymentStatus = simulate === 'success' ? 'paid' : 'failed';
-      await Shipment.findByIdAndUpdate(
-        payment.shipment,
-        { paymentStatus: newPaymentStatus },
+      const shipmentUpdate = await Shipment.updateOne(
+        {
+          _id: payment.shipment,
+          paymentStatus: 'pending',
+        },
+        { $set: { paymentStatus: newPaymentStatus } },
         { session }
       );
+
+      if (shipmentUpdate.matchedCount !== 1) {
+        throw new Error('Shipment payment status changed before confirmation could be applied.');
+      }
     });
 
     const message = simulate === 'success'
       ? 'Payment confirmed successfully.'
       : 'Payment simulation failed as requested.';
+    await invalidateAnalyticsCache();
 
     recordAuditEvent(req, {
       action: 'payment.confirmed',

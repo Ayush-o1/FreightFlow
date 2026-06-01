@@ -8,6 +8,7 @@ const {
 } = require('../controllers/paymentController');
 const { protect, authorizeRoles } = require('../middlewares/auth');
 const validateObjectId            = require('../middlewares/validateObjectId');
+const { idempotency }             = require('../middlewares/idempotency');
 
 const router = express.Router();
 
@@ -31,6 +32,7 @@ router.post(
   '/confirm/:paymentId',
   authorizeRoles('shipper'),
   validateObjectId('paymentId'),
+  idempotency(),
   confirmPayment
 );
 

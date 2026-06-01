@@ -35,13 +35,18 @@ This document describes the architectural decisions behind FreightFlow.
 │  └────────────────────────┬──────────────────────────── ┘  │
 │                           │                               │
 │  ┌────────────────────────▼──────────────────────────────┐  │
-│  │                     Mongoose ODM                       │  │
+│  │        Mongoose ODM + Outbox + BullMQ Producers         │  │
 │  └────────────────────────┬──────────────────────────────┘  │
 └───────────────────────────│───────────────────────────────┘
                             │
 ┌───────────────────────────▼───────────────────────────────┐
 │                       MongoDB Atlas                        │
-│              Collections: users, shipments, payments       │
+│       users, shipments, payments, auditLogs, outboxEvents  │
+└───────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────────────────┐
+│                           Redis                           │
+│ rate limits · idempotency · BullMQ queues · cache · sockets│
 └───────────────────────────────────────────────────────────┘
 ```
 
@@ -60,11 +65,11 @@ Express Router (route-level validation)
     ↓
 Middleware (protect → authorizeRoles → validateObjectId)
     ↓
-Controller (business logic, DB queries)
+Controller (business logic, atomic DB mutations)
     ↓
-Mongoose Model (schema validation, hooks)
+Mongoose Model + OutboxEvent/Audit Queue producer
     ↓
-MongoDB
+MongoDB + Redis/BullMQ workers
 ```
 
 ### Request/Response Format
@@ -110,7 +115,7 @@ Socket.io is attached to the same HTTP server as Express.
 
 - Clients call `joinShipmentRoom({ shipmentId })` to subscribe
 - The server authorizes every room join: only the shipment owner, assigned driver, or admin can join
-- When status or assignment changes, the controller retrieves the `io` singleton via `getIO()` and emits to the room
+- When status or assignment changes, the controller persists an outbox event and the outbox worker emits to the room
 - No global broadcasts — events are scoped to the relevant shipment
 
 **Events emitted by the server:**
@@ -120,6 +125,46 @@ Socket.io is attached to the same HTTP server as Express.
 | `statusUpdated` | `driverController.updateShipmentStatus` |
 | `shipmentDelivered` | `driverController.updateShipmentStatus` (when delivered) |
 | `driverAssigned` | `adminController.assignDriver` |
+
+Socket.IO uses `@socket.io/redis-adapter`, so room events propagate across
+multiple API instances while preserving shipment-room authorization.
+
+---
+
+## Redis And Distributed Infrastructure
+
+Redis is required at startup through `REDIS_URL`.
+
+| Concern | Redis-backed component |
+|---------|------------------------|
+| Distributed rate limits | Shared Redis counters across API instances |
+| Socket scaling | Socket.IO Redis adapter pub/sub |
+| Background jobs | BullMQ queues and workers |
+| Idempotency | 24-hour response records keyed by user, endpoint, and `Idempotency-Key` |
+| Analytics cache | Admin dashboard cache with `CACHE_TTL` |
+
+`src/config/redis.js` owns the singleton Redis client, reconnect behavior,
+BullMQ/ioredis connection creation, readiness checks, and graceful shutdown.
+
+## Background Jobs And Outbox
+
+FreightFlow uses BullMQ for asynchronous operational work:
+
+| Queue | Worker | Purpose |
+|-------|--------|---------|
+| `notificationQueue` | `notificationWorker` | Processes notification jobs |
+| `auditQueue` | `auditWorker` | Writes `AuditLog` records |
+| `outboxQueue` | `outboxWorker` | Publishes durable outbox events |
+| `futurePaymentQueue` | Reserved | Future delayed payment follow-up work |
+| `recoveryQueue` | `recoveryWorker` | Runs recovery sweeps |
+
+The outbox pattern is used for business events that must not be lost before
+notification or socket delivery. Controllers persist `OutboxEvent` records after
+critical mutations. The outbox worker reads pending events, emits socket events,
+enqueues notification jobs, and marks the event as `published`.
+
+Recovery sweeps re-enqueue pending or failed outbox records, retry failed audit
+and notification jobs, and report stuck payments and stale shipments.
 
 ---
 
@@ -131,7 +176,7 @@ Socket.io is attached to the same HTTP server as Express.
 | XSS | Helmet sets `Content-Security-Policy` and other protective headers |
 | CSRF | Double-submit CSRF token required for unsafe cookie-auth requests |
 | Auth bypass | JWT verified on every protected request + active user check |
-| Brute force | express-rate-limit on auth and business route groups |
+| Brute force | Redis-backed shared rate limits on auth and business route groups |
 | CORS | Origin whitelist via `CLIENT_URL` env variable |
 | Password storage | bcryptjs with 12 salt rounds |
 | Secret exposure | `.env` excluded from git; no secrets in code or docs |
@@ -161,8 +206,8 @@ Sensitive values are redacted from logs:
 ## Audit Logging
 
 `AuditLog` records sensitive security and business actions without blocking the
-main request path. Controllers call `recordAuditEvent(...)`, which writes in the
-background and logs audit-write failures instead of failing user requests.
+main request path. Controllers call `recordAuditEvent(...)`, which enqueues a
+BullMQ audit job. The audit worker writes to MongoDB with retry/backoff.
 
 Audited areas:
 
@@ -180,10 +225,10 @@ Health routes are mounted under `/api`:
 | Endpoint | Purpose |
 |----------|---------|
 | `/api/live` | Process liveness only |
-| `/api/ready` | Dependency readiness, currently MongoDB connection state |
+| `/api/ready` | Dependency readiness for MongoDB and Redis |
 | `/api/health` | Summary with live, ready, version, uptime, and dependencies |
 
-Readiness returns `503` if MongoDB is disconnected. This lets production
+Readiness returns `503` if MongoDB or Redis is disconnected. This lets production
 platforms separate process health from dependency availability.
 
 ## Testing Architecture
@@ -200,6 +245,10 @@ Coverage focuses on:
 - Shipment lifecycle rules
 - Payment transaction integrity
 - Socket authentication and shipment-room authorization
+- Redis-backed rate limiting and idempotency
+- BullMQ audit/notification/outbox workers
+- Analytics cache hit/miss and invalidation
+- Recovery sweeps and distributed Socket.IO propagation
 - Health/readiness and request ID correlation
 
 Frontend tests use Vitest, React Testing Library, and jsdom. Critical frontend
@@ -210,8 +259,8 @@ CSRF/refresh interceptors.
 
 GitHub Actions validates every push and pull request to `main`.
 
-Backend CI runs dependency installation, syntax checks, Jest tests, coverage,
-and production dependency audit. Frontend CI runs dependency installation, lint,
+Backend CI runs a Redis service container, dependency installation, syntax checks,
+Jest tests, coverage, and production dependency audit. Frontend CI runs dependency installation, lint,
 Vite build, Vitest tests, coverage, and production dependency audit.
 
 CodeQL scans JavaScript security issues, and Dependabot monitors backend,
@@ -226,10 +275,12 @@ User (shipper) ──creates──▶ Shipment ◀──is assigned── User (
                                 │
                                 └──has──▶ Payment
                                 └──has──▶ StatusHistory[]
+                                └──emits──▶ OutboxEvent
 ```
 
 - One shipment can have at most one payment (unique index on `Payment.shipment`)
 - `statusHistory` is an embedded array on each Shipment document — no separate collection
+- `OutboxEvent` stores durable side effects for socket and notification delivery
 - `driver` is null on a shipment until an admin assigns one
 
 ---

@@ -14,6 +14,7 @@ const {
 } = require('../controllers/adminController');
 const { protect, authorizeRoles } = require('../middlewares/auth');
 const validateObjectId            = require('../middlewares/validateObjectId');
+const { idempotency }             = require('../middlewares/idempotency');
 
 const router = express.Router();
 
@@ -56,7 +57,7 @@ const assignDriverValidation = [
     .isLength({ max: 500 })
     .withMessage('Note cannot exceed 500 characters.'),
 ];
-router.patch('/shipments/:id/assign', validateObjectId(), assignDriverValidation, assignDriver);
+router.patch('/shipments/:id/assign', validateObjectId(), idempotency(), assignDriverValidation, assignDriver);
 
 // @route   PATCH /api/admin/shipments/:id/cancel
 // @desc    Cancel any non-cancelled shipment
@@ -71,6 +72,7 @@ const cancelShipmentValidation = [
 router.patch(
   '/shipments/:id/cancel',
   validateObjectId(),
+  idempotency(),
   cancelShipmentValidation,
   cancelShipmentAsAdmin
 );

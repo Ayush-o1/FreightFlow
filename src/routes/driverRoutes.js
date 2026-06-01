@@ -9,6 +9,7 @@ const {
 } = require('../controllers/driverController');
 const { protect, authorizeRoles } = require('../middlewares/auth');
 const validateObjectId            = require('../middlewares/validateObjectId');
+const { idempotency }             = require('../middlewares/idempotency');
 
 const router = express.Router();
 
@@ -41,6 +42,6 @@ const updateStatusValidation = [
     .isLength({ max: 500 })
     .withMessage('Note cannot exceed 500 characters.'),
 ];
-router.patch('/shipments/:id/status', validateObjectId(), updateStatusValidation, updateShipmentStatus);
+router.patch('/shipments/:id/status', validateObjectId(), idempotency(), updateStatusValidation, updateShipmentStatus);
 
 module.exports = router;

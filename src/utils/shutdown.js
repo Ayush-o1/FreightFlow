@@ -3,6 +3,9 @@
 const mongoose = require('mongoose');
 const logger = require('../config/logger');
 const { getIO, clearIO } = require('./getIO');
+const { disconnectRedis } = require('../config/redis');
+const { closeQueues } = require('../queues');
+const { stopWorkers } = require('../workers');
 
 const closeServer = (server) =>
   new Promise((resolve) => {
@@ -23,11 +26,15 @@ const shutdown = async ({ server, signal = 'shutdown', exit = true } = {}) => {
 
   try {
     await closeSocket();
+    await stopWorkers();
+    await closeQueues();
     await closeServer(server);
 
     if (mongoose.connection.readyState !== 0) {
       await mongoose.disconnect();
     }
+
+    await disconnectRedis();
 
     logger.info({ signal }, 'Shutdown complete');
     if (exit) process.exit(0);

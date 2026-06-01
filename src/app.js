@@ -50,7 +50,7 @@ app.use(
       callback(new Error(`CORS: origin ${origin} not allowed`));
     },
     methods:        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'Idempotency-Key'],
     credentials:    true,
   })
 );

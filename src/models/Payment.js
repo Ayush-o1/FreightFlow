@@ -68,6 +68,9 @@ paymentSchema.set('toJSON', {
   },
 });
 
+paymentSchema.index({ status: 1, createdAt: 1 });
+paymentSchema.index({ shipper: 1, createdAt: -1 });
+
 const Payment = mongoose.model('Payment', paymentSchema);
 
 module.exports = Payment;

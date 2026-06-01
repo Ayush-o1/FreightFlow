@@ -10,3 +10,7 @@ process.env.COOKIE_SECURE = 'false';
 process.env.COOKIE_SAME_SITE = 'strict';
 process.env.ACCESS_TOKEN_COOKIE_MAX_AGE_MS = '900000';
 process.env.LOG_ENABLED = 'false';
+process.env.REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+process.env.QUEUE_CONCURRENCY = '2';
+process.env.CACHE_TTL = '300';
+process.env.QUEUE_WORKERS_ENABLED = 'false';
