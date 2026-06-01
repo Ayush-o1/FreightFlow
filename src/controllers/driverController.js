@@ -188,7 +188,9 @@ const updateShipmentStatus = async (req, res, next) => {
         note:       resolvedNote,
         timestamp:  new Date(),
       });
-      console.log(`📡  Emitted statusUpdated (${requestedStatus}) → room: ${room}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`📡  Emitted statusUpdated (${requestedStatus}) → room: ${room}`);
+      }
 
       if (requestedStatus === 'delivered') {
         io.to(room).emit('shipmentDelivered', {
@@ -196,7 +198,9 @@ const updateShipmentStatus = async (req, res, next) => {
           message:    'Your shipment has been delivered',
           timestamp:  new Date(),
         });
-        console.log(`🎉  Emitted shipmentDelivered → room: ${room}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`🎉  Emitted shipmentDelivered → room: ${room}`);
+        }
       }
     }
 

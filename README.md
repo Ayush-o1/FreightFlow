@@ -95,7 +95,7 @@ FreightFlow is a production-ready B2B logistics management platform built as a f
 
 ## 🛠️ Tech Stack
 
-### Backend (`freightflow-backend/`)
+### Backend (repository root)
 
 | Layer | Technology |
 |---|---|
@@ -125,42 +125,41 @@ FreightFlow is a production-ready B2B logistics management platform built as a f
 
 ```
 FreightFlow/
-├── freightflow-backend/          # Node.js / Express API server
-│   ├── server.js                 # Entry — HTTP server + Socket.IO boot
-│   ├── .env.example              # Environment variable template
-│   └── src/
-│       ├── app.js                # Express app, middleware, route mounting
-│       ├── config/
-│       │   └── db.js             # MongoDB connection
-│       ├── controllers/          # Route handler logic
-│       │   ├── authController.js
-│       │   ├── shipmentController.js
-│       │   ├── adminController.js
-│       │   ├── driverController.js
-│       │   └── paymentController.js
-│       ├── middlewares/
-│       │   ├── auth.js           # protect(), authorizeRoles()
-│       │   ├── errorHandler.js   # notFound(), errorHandler()
-│       │   └── validateObjectId.js
-│       ├── models/
-│       │   ├── User.js
-│       │   ├── Shipment.js
-│       │   └── Payment.js
-│       ├── routes/
-│       │   ├── authRoutes.js
-│       │   ├── shipmentRoutes.js
-│       │   ├── adminRoutes.js
-│       │   ├── driverRoutes.js
-│       │   └── paymentRoutes.js
-│       ├── scripts/
-│       │   └── seedAdmin.js      # One-time admin account seeder
-│       ├── services/
-│       │   ├── socketService.js  # Socket.IO initialisation and room management
-│       │   └── paymentService.js # Mock transaction ID generator
-│       └── utils/
-│           ├── responseFormatter.js  # successResponse(), errorResponse()
-│           ├── getIO.js              # Socket.IO singleton getter
-│           └── httpStatus.js         # HTTP status constants
+├── server.js                 # Entry — HTTP server + Socket.IO boot
+├── .env.example              # Environment variable template
+├── src/
+│   ├── app.js                # Express app, middleware, route mounting
+│   ├── config/
+│   │   └── db.js             # MongoDB connection
+│   ├── controllers/          # Route handler logic
+│   │   ├── authController.js
+│   │   ├── shipmentController.js
+│   │   ├── adminController.js
+│   │   ├── driverController.js
+│   │   └── paymentController.js
+│   ├── middlewares/
+│   │   ├── auth.js           # protect(), authorizeRoles()
+│   │   ├── errorHandler.js   # notFound(), errorHandler()
+│   │   └── validateObjectId.js
+│   ├── models/
+│   │   ├── User.js
+│   │   ├── Shipment.js
+│   │   └── Payment.js
+│   ├── routes/
+│   │   ├── authRoutes.js
+│   │   ├── shipmentRoutes.js
+│   │   ├── adminRoutes.js
+│   │   ├── driverRoutes.js
+│   │   └── paymentRoutes.js
+│   ├── scripts/
+│   │   └── seedAdmin.js      # One-time admin account seeder
+│   ├── services/
+│   │   ├── socketService.js  # Socket.IO initialisation and room management
+│   │   └── paymentService.js # Mock transaction ID generator
+│   └── utils/
+│       ├── responseFormatter.js  # successResponse(), errorResponse()
+│       ├── getIO.js              # Socket.IO singleton getter
+│       └── httpStatus.js         # HTTP status constants
 │
 ├── client/                       # React SPA
 │   ├── public/
@@ -219,7 +218,7 @@ cd FreightFlow
 ### Backend
 
 ```bash
-cd freightflow-backend
+# (run from the repository root)
 cp .env.example .env
 ```
 
@@ -231,8 +230,8 @@ cp .env.example .env
 | `JWT_SECRET` | Secret for signing JWTs | *(generate below)* |
 | `JWT_EXPIRES_IN` | Token expiry | `7d` |
 | `CLIENT_URL` | Frontend origin for CORS | `http://localhost:5173` |
-| `ADMIN_EMAIL` | Seed admin email | `admin@freightflow.com` |
-| `ADMIN_PASSWORD` | Seed admin password | `Admin@123` |
+| `ADMIN_EMAIL` | Seed admin email — set your own, never commit | *(your-admin@example.com)* |
+| `ADMIN_PASSWORD` | Seed admin password — must be strong, never commit | *(choose a strong password)* |
 | `ADMIN_NAME` | Seed admin display name | `Super Admin` |
 
 **Generate a secure JWT secret:**
@@ -260,7 +259,7 @@ cp .env.example .env
 ### 1 — Start the backend
 
 ```bash
-cd freightflow-backend
+# (run from the repository root — not a subdirectory)
 npm install
 
 # Create the admin account (run once after setting up .env)
@@ -282,11 +281,13 @@ npm run dev
 
 ### 3 — Login with demo credentials
 
-| Role | Email | Password |
-|---|---|---|
-| Admin | `admin@freightflow.com` | `Admin@123` |
-| Shipper | Register via `/register` | any |
-| Driver | Register via `/register` | any |
+| Role | How to obtain |
+|---|---|
+| Admin | Seeded via `node src/scripts/seedAdmin.js` using the `ADMIN_EMAIL` / `ADMIN_PASSWORD` values you set in `.env` |
+| Shipper | Register via `/register` with role **Shipper** |
+| Driver | Register via `/register` with role **Driver** |
+
+> ⚠️ **Never publish admin credentials.** Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in your `.env` file before seeding.
 
 ---
 

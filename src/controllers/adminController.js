@@ -11,6 +11,14 @@ const {
 } = require('../utils/httpStatus');
 const { notifyDriverAssigned } = require('../services/notificationService');
 
+/**
+ * Escapes all regex metacharacters in a string so it is safe to pass
+ * to `new RegExp()` without creating a ReDoS vulnerability.
+ * @param {string} str
+ * @returns {string}
+ */
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  GET ALL SHIPMENTS  (with filter, search, pagination)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -44,7 +52,8 @@ const getAllShipments = async (req, res, next) => {
     }
 
     if (search) {
-      const regex        = new RegExp(search, 'i');
+      const safeSearch   = escapeRegex(String(search).trim());
+      const regex        = new RegExp(safeSearch, 'i');
       const matchedUsers = await User.find({ name: regex }, '_id');
       const matchedIds   = matchedUsers.map((u) => u._id);
 
@@ -212,7 +221,9 @@ const assignDriver = async (req, res, next) => {
         message:    'A driver has been assigned to your shipment',
         timestamp:  new Date(),
       });
-      console.log(`📡  Emitted driverAssigned → room: shipment_${id}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`📡  Emitted driverAssigned → room: shipment_${id}`);
+      }
     }
 
     // ── Mock email notification ───────────────────────────────────────────────
