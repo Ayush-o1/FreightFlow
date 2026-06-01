@@ -105,11 +105,6 @@ const adminRoutes    = require('./routes/adminRoutes');
 const driverRoutes   = require('./routes/driverRoutes');
 const paymentRoutes  = require('./routes/paymentRoutes');
 
-// Token refresh route gets its own higher-ceiling limiter, applied before the router.
-// POST /api/auth/refresh is mounted via authRoutes but needs a different rate limit,
-// so we apply refreshLimiter as a path-specific middleware here, before authRoutes.
-app.use('/api/auth/refresh', refreshLimiter);
-
 app.use('/api/auth',      authLimiter, authRoutes);  // login, register, logout, me (10/15min)
 app.use('/api/shipments', shipmentRoutes);
 app.use('/api/admin',     adminRoutes);
