@@ -11,13 +11,15 @@
  * ══════════════════════════════════════════════════════════
  */
 
+const logger = require('../config/logger');
+
 const logMockEmail = (message) => {
   if (process.env.NODE_ENV === 'production') {
-    console.log('[EMAIL] Mock notification suppressed in production.');
+    logger.info('Mock notification suppressed in production.');
     return;
   }
 
-  console.log(message);
+  logger.debug({ notification: message }, 'Mock notification generated');
 };
 
 /**

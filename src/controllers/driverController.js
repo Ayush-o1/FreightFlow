@@ -4,6 +4,7 @@ const { validationResult } = require('express-validator');
 const Shipment = require('../models/Shipment');
 const { successResponse, errorResponse } = require('../utils/responseFormatter');
 const { getIO } = require('../utils/getIO');
+const logger = require('../config/logger');
 const {
   OK, BAD_REQUEST, FORBIDDEN, NOT_FOUND, UNPROCESSABLE,
 } = require('../utils/httpStatus');
@@ -194,9 +195,7 @@ const updateShipmentStatus = async (req, res, next) => {
         note:       resolvedNote,
         timestamp:  new Date(),
       });
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`📡  Emitted statusUpdated (${requestedStatus}) → room: ${room}`);
-      }
+      logger.debug({ shipmentId: id, status: requestedStatus, room }, 'Emitted statusUpdated');
 
       if (requestedStatus === 'delivered') {
         io.to(room).emit('shipmentDelivered', {
@@ -204,9 +203,7 @@ const updateShipmentStatus = async (req, res, next) => {
           message:    'Your shipment has been delivered',
           timestamp:  new Date(),
         });
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`🎉  Emitted shipmentDelivered → room: ${room}`);
-        }
+        logger.debug({ shipmentId: id, room }, 'Emitted shipmentDelivered');
       }
     }
 

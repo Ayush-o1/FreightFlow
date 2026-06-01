@@ -6,11 +6,15 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const http = require('http');
+const { validateEnv } = require('./src/config/env');
+const logger = require('./src/config/logger');
 const app  = require('./src/app');
 const connectDB    = require('./src/config/db');
 const { initSocket } = require('./src/services/socketService');
+const { shutdown } = require('./src/utils/shutdown');
 
-const PORT = process.env.PORT || 5001;
+const env = validateEnv();
+const PORT = env.PORT;
 
 // Create HTTP server (Socket.io will attach to this in a later phase)
 const server = http.createServer(app);
@@ -26,46 +30,43 @@ const startServer = async () => {
 
     // 3. Start listening
     server.listen(PORT, () => {
-      console.log('================================================');
-      console.log(`  🚚  FreightFlow API Server`);
-      console.log(`  🌍  Environment : ${process.env.NODE_ENV || 'development'}`);
-      console.log(`  🔌  Port        : ${PORT}`);
-      console.log(`  ✅  Status      : Running`);
-      console.log('================================================');
+      logger.info(
+        {
+          port: PORT,
+          environment: process.env.NODE_ENV || 'development',
+        },
+        'FreightFlow API server running'
+      );
     });
   } catch (error) {
-    console.error('❌  Failed to start server:', error.message);
+    logger.error({ err: error }, 'Failed to start server');
     process.exit(1);
   }
 };
 
 // Handle unhandled promise rejections gracefully
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('🔥  Unhandled Promise Rejection at:', promise);
-  console.error('    Reason:', reason);
-  // Gracefully shut down the server before exiting
-  server.close(() => {
-    console.error('💀  Server shut down due to unhandled rejection.');
-    process.exit(1);
-  });
+  logger.error({ reason, promise }, 'Unhandled promise rejection');
+  shutdown({ server, signal: 'unhandledRejection' });
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  console.error('🔥  Uncaught Exception:', error.message);
-  console.error(error.stack);
-  process.exit(1);
+  logger.error({ err: error }, 'Uncaught exception');
+  shutdown({ server, signal: 'uncaughtException' });
 });
 
 // Graceful shutdown on SIGTERM (e.g. from Docker / Render / Railway)
 process.on('SIGTERM', () => {
-  console.log('🛑  SIGTERM received. Shutting down gracefully...');
-  server.close(() => {
-    console.log('✅  HTTP server closed.');
-    process.exit(0);
-  });
+  shutdown({ server, signal: 'SIGTERM' });
 });
 
-startServer();
+process.on('SIGINT', () => {
+  shutdown({ server, signal: 'SIGINT' });
+});
 
-module.exports = server; // exported for testing purposes
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = { server, startServer };

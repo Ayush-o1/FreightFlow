@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const Payment  = require('../models/Payment');
 const Shipment = require('../models/Shipment');
 const { generateMockTransactionId } = require('../services/paymentService');
+const { recordAuditEvent } = require('../services/auditLogService');
 const { successResponse, errorResponse } = require('../utils/responseFormatter');
 const {
   OK, CREATED, BAD_REQUEST, FORBIDDEN, NOT_FOUND, CONFLICT, UNPROCESSABLE,
@@ -192,6 +193,17 @@ const confirmPayment = async (req, res, next) => {
     const message = simulate === 'success'
       ? 'Payment confirmed successfully.'
       : 'Payment simulation failed as requested.';
+
+    recordAuditEvent(req, {
+      action: 'payment.confirmed',
+      targetType: 'Payment',
+      targetId: payment._id,
+      metadata: {
+        shipmentId: payment.shipment,
+        simulate,
+        status: payment.status,
+      },
+    });
 
     return successResponse(res, OK, message, { payment });
   } catch (error) {

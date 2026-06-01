@@ -226,8 +226,9 @@ cp .env.example .env
 |---|---|---|
 | `PORT` | Server port | `5001` |
 | `NODE_ENV` | Runtime environment | `development` |
-| `MONGODB_URI` | Full MongoDB connection string | `mongodb+srv://user:pass@cluster.mongodb.net/FreightFlow` |
+| `MONGODB_URI` / `MONGO_URI` | Full MongoDB connection string | `mongodb+srv://user:pass@cluster.mongodb.net/FreightFlow` |
 | `JWT_SECRET` | Secret for signing JWTs | *(generate below)* |
+| `JWT_REFRESH_SECRET` | Reserved refresh-token secret, validated at startup | *(generate below)* |
 | `JWT_EXPIRES_IN` | Short-lived access token expiry | `15m` |
 | `ACCESS_TOKEN_COOKIE_MAX_AGE_MS` | Access cookie max age in milliseconds | `900000` |
 | `CLIENT_URL` | Frontend origin for CORS | `http://localhost:5173` |
@@ -235,6 +236,8 @@ cp .env.example .env
 | `COOKIE_SECURE` | Require HTTPS cookies | `false` locally, `true` in production |
 | `COOKIE_DOMAIN` | Optional shared cookie domain | *(blank locally)* |
 | `TRUST_PROXY` | Proxy hop count for hosted deployments | `1` on many PaaS hosts |
+| `LOG_LEVEL` | Structured logger level | `info` |
+| `LOG_ENABLED` | Disable logs in test automation when set false | `true` |
 | `ADMIN_EMAIL` | Seed admin email — set your own, never commit | *(your-admin@example.com)* |
 | `ADMIN_PASSWORD` | Seed admin password — must be strong, never commit | *(choose a strong password)* |
 | `ADMIN_NAME` | Seed admin display name | `Super Admin` |
@@ -341,11 +344,16 @@ pending  →  assigned  →  picked_up  →  in_transit  →  delivered
 http://localhost:5001/api
 ```
 
-### Health Check
+### Health And Readiness
 
 ```
+GET /api/live
+GET /api/ready
 GET /api/health
 ```
+
+`/api/live` reports process liveness. `/api/ready` verifies MongoDB connectivity.
+`/api/health` returns a summary with `live`, `ready`, `version`, and uptime.
 
 ### Authentication  `/api/auth`
 
@@ -447,6 +455,78 @@ or an admin can subscribe to a shipment room.
 5. `authorizeRoles(...roles)` checks `req.user.role` against allowed roles.
 6. On access-token expiry, Axios calls `POST /api/auth/refresh`; the refresh token is rotated and stored as a SHA-256 hash in MongoDB.
 7. Admin accounts can only be created via `node src/scripts/seedAdmin.js`.
+
+---
+
+## ✅ Testing And Coverage
+
+### Backend
+
+```bash
+npm run check          # node --check syntax validation
+npm test               # Jest + Supertest integration tests
+npm run test:coverage  # Coverage report in coverage/
+```
+
+The backend test harness uses `mongodb-memory-server` with `MongoMemoryReplSet`,
+so payment transaction tests run against a transaction-capable MongoDB replica set.
+Coverage gates enforce at least 70% global statement coverage and 85%+ statement
+coverage on auth-critical modules.
+
+### Frontend
+
+```bash
+cd client
+npm run lint
+npm run build
+npm test
+npm run test:coverage
+```
+
+Frontend tests use Vitest, React Testing Library, and jsdom. Critical coverage
+focuses on auth hydration, protected route behavior, CSRF headers, and refresh retry logic.
+
+---
+
+## 🧭 Observability And Audit Logging
+
+- Every HTTP request receives an `X-Request-ID` response header.
+- Error responses include `requestId` for correlation.
+- API logs use structured `pino` / `pino-http` output.
+- Sensitive values such as cookies, Authorization headers, passwords, JWTs, and refresh hashes are redacted.
+- Audit events are written non-blockingly and never break user requests.
+
+Audited events:
+
+| Area | Events |
+|---|---|
+| Auth | login, logout, refresh failures |
+| Admin | activate user, deactivate user |
+| Shipments | assignment, cancellation |
+| Payments | confirmation |
+
+---
+
+## 🔁 CI/CD
+
+GitHub Actions runs on pushes and pull requests to `main`.
+
+Backend CI:
+- install
+- syntax checks
+- tests
+- coverage
+- production audit
+
+Frontend CI:
+- install
+- lint
+- build
+- tests
+- coverage
+- production audit
+
+CodeQL and Dependabot are configured for security scanning and dependency updates.
 
 ---
 

@@ -138,6 +138,87 @@ Socket.io is attached to the same HTTP server as Express.
 
 ---
 
+## Observability
+
+FreightFlow now uses structured backend logging with `pino` and `pino-http`.
+
+Request flow:
+
+1. `requestId` middleware accepts an incoming `X-Request-ID` or generates a UUID.
+2. The same request ID is written to `res.locals`, added to the `X-Request-ID`
+   response header, and included in structured request/error logs.
+3. Error responses include `requestId`, so client-visible failures can be matched
+   to server logs.
+
+Sensitive values are redacted from logs:
+
+- `Authorization` headers
+- Cookie headers
+- Passwords
+- JWT/access token fields
+- Refresh token/hash fields
+
+## Audit Logging
+
+`AuditLog` records sensitive security and business actions without blocking the
+main request path. Controllers call `recordAuditEvent(...)`, which writes in the
+background and logs audit-write failures instead of failing user requests.
+
+Audited areas:
+
+| Area | Events |
+|------|--------|
+| Auth | login, logout, refresh failures |
+| Admin | user activation/deactivation |
+| Shipments | assignment, cancellation |
+| Payments | confirmation |
+
+## Health And Readiness
+
+Health routes are mounted under `/api`:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/api/live` | Process liveness only |
+| `/api/ready` | Dependency readiness, currently MongoDB connection state |
+| `/api/health` | Summary with live, ready, version, uptime, and dependencies |
+
+Readiness returns `503` if MongoDB is disconnected. This lets production
+platforms separate process health from dependency availability.
+
+## Testing Architecture
+
+Backend tests use Jest and Supertest. Integration tests run against
+`MongoMemoryReplSet`, not a standalone in-memory MongoDB, because payment
+controllers use MongoDB transactions.
+
+Coverage focuses on:
+
+- Auth cookies and refresh rotation
+- CSRF protection
+- RBAC and inactive-user rejection
+- Shipment lifecycle rules
+- Payment transaction integrity
+- Socket authentication and shipment-room authorization
+- Health/readiness and request ID correlation
+
+Frontend tests use Vitest, React Testing Library, and jsdom. Critical frontend
+coverage targets AuthContext hydration, ProtectedRoute behavior, and Axios
+CSRF/refresh interceptors.
+
+## CI/CD
+
+GitHub Actions validates every push and pull request to `main`.
+
+Backend CI runs dependency installation, syntax checks, Jest tests, coverage,
+and production dependency audit. Frontend CI runs dependency installation, lint,
+Vite build, Vitest tests, coverage, and production dependency audit.
+
+CodeQL scans JavaScript security issues, and Dependabot monitors backend,
+frontend, and GitHub Actions dependencies.
+
+---
+
 ## Data Relationships
 
 ```

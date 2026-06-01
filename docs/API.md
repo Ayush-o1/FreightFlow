@@ -4,6 +4,9 @@ Complete reference for all REST API endpoints in the FreightFlow backend.
 
 **Base URL (local):** `http://localhost:5001`
 
+Every response includes an `X-Request-ID` header. Error responses include the
+same `requestId` in the JSON body so logs and client reports can be correlated.
+
 Authentication is cookie-based. The backend sets `ff_access_token` and
 `ff_refresh_token` as httpOnly cookies. Browser clients must send requests with
 credentials enabled.
@@ -19,6 +22,50 @@ All responses follow this shape:
   "data": { ... }
 }
 ```
+
+---
+
+## Health — `/api`
+
+### GET `/api/live`
+
+Process liveness endpoint. Does not check dependencies.
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": {
+    "live": true,
+    "environment": "production",
+    "uptimeSeconds": 123,
+    "timestamp": "2026-06-01T00:00:00.000Z"
+  }
+}
+```
+
+### GET `/api/ready`
+
+Readiness endpoint. Verifies MongoDB connection state.
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": {
+    "ready": true,
+    "dependencies": {
+      "mongo": { "ready": true, "state": 1, "stateLabel": "connected" }
+    }
+  }
+}
+```
+
+Returns `503` if MongoDB is not connected.
+
+### GET `/api/health`
+
+Summary endpoint containing liveness, readiness, version, uptime, and dependency state.
 
 ---
 
@@ -375,6 +422,26 @@ Error body:
 ```json
 {
   "success": false,
-  "message": "Descriptive error message here"
+  "message": "Descriptive error message here",
+  "requestId": "7e3b2fd8-6c49-4dd2-a6e8-d084dfe6a51a"
 }
 ```
+
+---
+
+## Audit Logging
+
+The API writes non-blocking audit records for sensitive business events:
+
+| Event | Trigger |
+|-------|---------|
+| `auth.login` | Login/register creates an authenticated session |
+| `auth.logout` | Logout invalidates the session |
+| `auth.refresh_failed` | Missing, invalid, expired, or inactive refresh attempt |
+| `shipment.assigned` | Admin assigns a driver |
+| `shipment.cancelled` | Shipper/admin cancels a shipment |
+| `admin.user_activated` | Admin reactivates a user |
+| `admin.user_deactivated` | Admin deactivates a user |
+| `payment.confirmed` | Payment confirmation succeeds or fails |
+
+Audit logging is failure-safe: failed audit writes are logged but do not break user requests.

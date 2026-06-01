@@ -1,6 +1,14 @@
 'use strict';
 
 const mongoose = require('mongoose');
+const logger = require('./logger');
+
+const STATE_LABELS = {
+  0: 'disconnected',
+  1: 'connected',
+  2: 'connecting',
+  3: 'disconnecting',
+};
 
 /**
  * Establishes a connection to MongoDB using the URI defined in environment variables.
@@ -9,12 +17,12 @@ const mongoose = require('mongoose');
  * allowing server.js to handle the failure gracefully.
  */
 const connectDB = async () => {
-  const uri = process.env.MONGODB_URI;
+  const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
 
   if (!uri) {
     throw new Error(
-      'MONGODB_URI is not defined in environment variables. ' +
-      'Please set it in your .env file.'
+      'MONGODB_URI or MONGO_URI is not defined in environment variables. ' +
+      'Please set one in your .env file.'
     );
   }
 
@@ -26,11 +34,9 @@ const connectDB = async () => {
       socketTimeoutMS: 45000,         // Close sockets after 45s of inactivity
     });
 
-    console.log(
-      `✅  MongoDB connected successfully → Host: ${connection.connection.host}`
-    );
+    logger.info({ host: connection.connection.host }, 'MongoDB connected successfully');
   } catch (error) {
-    console.error('❌  MongoDB connection failed:', error.message);
+    logger.error({ err: error }, 'MongoDB connection failed');
     // Re-throw so server.js can catch and exit cleanly
     throw error;
   }
@@ -38,11 +44,24 @@ const connectDB = async () => {
 
 // Listen for disconnection events after initial connection
 mongoose.connection.on('disconnected', () => {
-  console.warn('⚠️   MongoDB disconnected. Attempting to reconnect...');
+  logger.warn('MongoDB disconnected. Mongoose will attempt to reconnect.');
 });
 
 mongoose.connection.on('reconnected', () => {
-  console.log('🔄  MongoDB reconnected successfully.');
+  logger.info('MongoDB reconnected successfully.');
 });
 
+const getMongoReadiness = () => {
+  const state = mongoose.connection.readyState;
+
+  return {
+    ready: state === 1,
+    state,
+    stateLabel: STATE_LABELS[state] || 'unknown',
+    host: mongoose.connection.host || null,
+    name: mongoose.connection.name || null,
+  };
+};
+
 module.exports = connectDB;
+module.exports.getMongoReadiness = getMongoReadiness;

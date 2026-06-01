@@ -6,6 +6,7 @@ const { successResponse, errorResponse } = require('../utils/responseFormatter')
 const { OK, CREATED, BAD_REQUEST, FORBIDDEN, NOT_FOUND, UNPROCESSABLE } = require('../utils/httpStatus');
 const { notifyShipmentCreated } = require('../services/notificationService');
 const { getIO } = require('../utils/getIO');
+const { recordAuditEvent } = require('../services/auditLogService');
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  CREATE SHIPMENT
@@ -221,6 +222,17 @@ const cancelShipment = async (req, res, next) => {
         timestamp:  new Date(),
       });
     }
+
+    recordAuditEvent(req, {
+      action: 'shipment.cancelled',
+      targetType: 'Shipment',
+      targetId: shipment._id,
+      metadata: {
+        cancelledBy: 'shipper',
+        previousStatus,
+        newStatus: 'cancelled',
+      },
+    });
 
     return successResponse(res, OK, 'Shipment cancelled successfully.', {
       shipment: updatedShipment,

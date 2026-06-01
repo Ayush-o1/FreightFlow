@@ -12,6 +12,7 @@ const {
   getClearCookieOptions,
 } = require('../config/security');
 const { issueCsrfToken } = require('../middlewares/csrfProtection');
+const { recordAuditEvent } = require('../services/auditLogService');
 const {
   OK, CREATED, BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, UNPROCESSABLE,
 } = require('../utils/httpStatus');
@@ -111,6 +112,15 @@ const register = async (req, res, next) => {
 
     setAuthCookies(res, accessToken, raw);
 
+    recordAuditEvent(req, {
+      action: 'auth.login',
+      actor: user._id,
+      actorRole: user.role,
+      targetType: 'User',
+      targetId: user._id,
+      metadata: { method: 'register' },
+    });
+
     return successResponse(res, CREATED, 'Account created successfully.', {
       user: sanitizeUser(user),
     });
@@ -158,6 +168,15 @@ const login = async (req, res, next) => {
 
     setAuthCookies(res, accessToken, raw);
 
+    recordAuditEvent(req, {
+      action: 'auth.login',
+      actor: user._id,
+      actorRole: user.role,
+      targetType: 'User',
+      targetId: user._id,
+      metadata: { method: 'login' },
+    });
+
     return successResponse(res, OK, 'Logged in successfully.', {
       user: sanitizeUser(user),
     });
@@ -182,6 +201,14 @@ const logout = async (req, res, next) => {
 
     clearAuthCookies(res);
 
+    recordAuditEvent(req, {
+      action: 'auth.logout',
+      actor: req.user._id,
+      actorRole: req.user.role,
+      targetType: 'User',
+      targetId: req.user._id,
+    });
+
     return successResponse(res, OK, 'Logged out successfully.');
   } catch (error) {
     next(error);
@@ -201,6 +228,11 @@ const refresh = async (req, res, next) => {
     const rawToken = req.cookies?.ff_refresh_token;
 
     if (!rawToken) {
+      recordAuditEvent(req, {
+        action: 'auth.refresh_failed',
+        status: 'failure',
+        metadata: { reason: 'missing_refresh_token' },
+      });
       return errorResponse(res, UNAUTHORIZED, 'No refresh token provided. Please log in again.');
     }
 
@@ -211,10 +243,24 @@ const refresh = async (req, res, next) => {
 
     if (!user) {
       // Token not found — either already rotated (reuse attempt) or never issued
+      recordAuditEvent(req, {
+        action: 'auth.refresh_failed',
+        status: 'failure',
+        metadata: { reason: 'invalid_refresh_token' },
+      });
       return errorResponse(res, UNAUTHORIZED, 'Invalid or expired refresh token. Please log in again.');
     }
 
     if (!user.isActive) {
+      recordAuditEvent(req, {
+        action: 'auth.refresh_failed',
+        status: 'failure',
+        actor: user._id,
+        actorRole: user.role,
+        targetType: 'User',
+        targetId: user._id,
+        metadata: { reason: 'inactive_user' },
+      });
       return errorResponse(res, FORBIDDEN, 'Your account has been deactivated. Please contact support.');
     }
 

@@ -32,4 +32,8 @@ const setIO = (ioInstance) => {
  */
 const getIO = () => _io;
 
-module.exports = { setIO, getIO };
+const clearIO = () => {
+  _io = null;
+};
+
+module.exports = { setIO, getIO, clearIO };

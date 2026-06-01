@@ -3,12 +3,14 @@
 const express        = require('express');
 const cors           = require('cors');
 const helmet         = require('helmet');
-const morgan         = require('morgan');
+const pinoHttp       = require('pino-http');
 const cookieParser   = require('cookie-parser');
 const mongoSanitize  = require('express-mongo-sanitize');
 const { notFound, errorHandler } = require('./middlewares/errorHandler');
-const { successResponse }        = require('./utils/responseFormatter');
 const { buildAllowedOrigins, configureTrustProxy } = require('./config/security');
+const logger = require('./config/logger');
+const healthRoutes = require('./routes/healthRoutes');
+const { requestId } = require('./middlewares/requestId');
 const { csrfProtection } = require('./middlewares/csrfProtection');
 const { generalLimiter } = require('./middlewares/rateLimiters');
 
@@ -18,6 +20,17 @@ configureTrustProxy(app);
 
 // ─── Security Middleware ──────────────────────────────────────────────────────
 app.use(helmet());
+
+// ─── Request Correlation + Structured Logging ────────────────────────────────
+app.use(requestId);
+app.use(
+  pinoHttp({
+    logger,
+    genReqId: (req) => req.id,
+    customProps: (req) => ({ requestId: req.id }),
+    quietReqLogger: true,
+  })
+);
 
 // ─── Cookie Parser (MUST be before routes so req.cookies is populated) ───────
 app.use(cookieParser());
@@ -42,9 +55,6 @@ app.use(
   })
 );
 
-// ─── Request Logging ──────────────────────────────────────────────────────────
-app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
-
 // ─── Body Parsing ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -61,15 +71,8 @@ app.use(mongoSanitize({ replaceWith: '_' }));
 // the token bootstrap endpoint remain open so the SPA can initialize safely.
 app.use(csrfProtection);
 
-// ─── Health Check Route ───────────────────────────────────────────────────────
-app.get('/api/health', (req, res) => {
-  successResponse(res, 200, 'FreightFlow API is healthy', {
-    status:      'UP',
-    environment: process.env.NODE_ENV || 'development',
-    timestamp:   new Date().toISOString(),
-    uptime:      `${Math.floor(process.uptime())}s`,
-  });
-});
+// ─── Health / Readiness Routes ────────────────────────────────────────────────
+app.use('/api', healthRoutes);
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 const authRoutes     = require('./routes/authRoutes');

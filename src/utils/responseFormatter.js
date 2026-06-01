@@ -47,12 +47,22 @@ const successResponse = (res, statusCode, message, data = null) => {
  * @param {string}                     message    - Human-readable error message
  * @returns {import('express').Response}
  */
-const errorResponse = (res, statusCode, message) => {
-  return res.status(statusCode).json({
+const errorResponse = (res, statusCode, message, data = null) => {
+  const body = {
     success: false,
     statusCode,
     message,
-  });
+  };
+
+  if (res.locals?.requestId) {
+    body.requestId = res.locals.requestId;
+  }
+
+  if (data !== null && data !== undefined) {
+    body.data = data;
+  }
+
+  return res.status(statusCode).json(body);
 };
 
 module.exports = { successResponse, errorResponse };

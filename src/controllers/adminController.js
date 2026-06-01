@@ -7,10 +7,12 @@ const Payment   = require('../models/Payment');
 const User      = require('../models/User');
 const { successResponse, errorResponse } = require('../utils/responseFormatter');
 const { getIO } = require('../utils/getIO');
+const logger = require('../config/logger');
 const {
   OK, BAD_REQUEST, NOT_FOUND, CONFLICT, FORBIDDEN, UNPROCESSABLE,
 } = require('../utils/httpStatus');
 const { notifyDriverAssigned } = require('../services/notificationService');
+const { recordAuditEvent } = require('../services/auditLogService');
 
 /**
  * Escapes all regex metacharacters in a string so it is safe to pass
@@ -227,13 +229,22 @@ const assignDriver = async (req, res, next) => {
         message:    'A driver has been assigned to your shipment',
         timestamp:  new Date(),
       });
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`📡  Emitted driverAssigned → room: shipment_${id}`);
-      }
+      logger.debug({ shipmentId: id, driverId, room: `shipment_${id}` }, 'Emitted driverAssigned');
     }
 
     // ── Mock email notification ───────────────────────────────────────────────
     notifyDriverAssigned(shipment, shipment.shipper, driver);
+
+    recordAuditEvent(req, {
+      action: 'shipment.assigned',
+      targetType: 'Shipment',
+      targetId: shipment._id,
+      metadata: {
+        driverId,
+        previousStatus: 'pending',
+        newStatus: 'assigned',
+      },
+    });
 
     return successResponse(res, OK, 'Driver assigned successfully.', { shipment });
   } catch (error) {
@@ -302,6 +313,17 @@ const cancelShipmentAsAdmin = async (req, res, next) => {
         timestamp: new Date(),
       });
     }
+
+    recordAuditEvent(req, {
+      action: 'shipment.cancelled',
+      targetType: 'Shipment',
+      targetId: shipment._id,
+      metadata: {
+        cancelledBy: 'admin',
+        previousStatus,
+        newStatus: 'cancelled',
+      },
+    });
 
     return successResponse(res, OK, 'Shipment cancelled successfully.', {
       shipment: updatedShipment,
@@ -473,6 +495,16 @@ const updateUserStatus = async (req, res, next) => {
     }
 
     await user.save({ validateBeforeSave: false });
+
+    recordAuditEvent(req, {
+      action: isActive ? 'admin.user_activated' : 'admin.user_deactivated',
+      targetType: 'User',
+      targetId: user._id,
+      metadata: {
+        targetRole: user.role,
+        isActive,
+      },
+    });
 
     // Return a safe user object (password + refreshToken excluded by select:false)
     const safeUser = {

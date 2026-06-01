@@ -6,6 +6,8 @@ freightflow-backend/node_modules/
 # ── Build output ──────────────────────────────────────────────────────────────
 client/dist/
 client/build/
+coverage/
+client/coverage/
 
 # ── Environment files (NEVER commit secrets) ─────────────────────────────────
 .env
@@ -33,4 +35,3 @@ freightflow-backend/smokeTest*.js
 # ── Misc ─────────────────────────────────────────────────────────────────────
 *.pem
 .npm
-

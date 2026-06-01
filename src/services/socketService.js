@@ -47,10 +47,13 @@ const User       = require('../models/User');
 const Shipment   = require('../models/Shipment');
 const { setIO }  = require('../utils/getIO');
 const { COOKIE_NAMES, buildAllowedOrigins } = require('../config/security');
+const logger = require('../config/logger');
 
 // ── Dev-only logger ───────────────────────────────────────────────────────────
 const isDev = process.env.NODE_ENV !== 'production';
-const devLog = (...args) => { if (isDev) console.log(...args); };
+const devLog = (message, data = {}) => {
+  if (isDev) logger.debug(data, message);
+};
 
 // ── Cookie parser helper ──────────────────────────────────────────────────────
 /**
@@ -150,7 +153,7 @@ const initSocket = (httpServer) => {
         name: currentUser.name,
         role: currentUser.role,
       };
-      devLog(`🔒  Socket auth OK   → userId: ${socket.data.user.id}`);
+      devLog('Socket auth OK', { userId: socket.data.user.id });
 
       next();
     } catch (err) {
@@ -161,7 +164,7 @@ const initSocket = (httpServer) => {
 
   // ── Connection lifecycle ───────────────────────────────────────────────────
   io.on('connection', (socket) => {
-    devLog(`🔌  Socket connected    → id: ${socket.id} | userId: ${socket.data.user.id}`);
+    devLog('Socket connected', { socketId: socket.id, userId: socket.data.user.id });
 
     // ── Client → Server: join a shipment room ────────────────────────────────
     socket.on('joinShipmentRoom', async ({ shipmentId } = {}, ack) => {
@@ -190,10 +193,10 @@ const initSocket = (httpServer) => {
         const room = `shipment_${shipmentId}`;
         socket.join(room);
         if (typeof ack === 'function') ack({ success: true, shipmentId });
-        devLog(`📦  Socket ${socket.id} joined  room: ${room}`);
+        devLog('Socket joined shipment room', { socketId: socket.id, room });
       } catch (error) {
         emitRoomError(socket, ack, shipmentId, 'Unable to join shipment room.');
-        devLog(`⚠️   Socket room join failed → ${error.message}`);
+        devLog('Socket room join failed', { err: error, shipmentId });
       }
     });
 
@@ -202,16 +205,16 @@ const initSocket = (httpServer) => {
       if (!shipmentId) return;
       const room = `shipment_${shipmentId}`;
       socket.leave(room);
-      devLog(`📦  Socket ${socket.id} left    room: ${room}`);
+      devLog('Socket left shipment room', { socketId: socket.id, room });
     });
 
     // ── Disconnect ───────────────────────────────────────────────────────────
     socket.on('disconnect', (reason) => {
-      devLog(`🔌  Socket disconnected → id: ${socket.id} (reason: ${reason})`);
+      devLog('Socket disconnected', { socketId: socket.id, reason });
     });
   });
 
-  console.log('⚡  Socket.io initialized successfully.');
+  logger.info('Socket.io initialized successfully.');
   return io;
 };
 

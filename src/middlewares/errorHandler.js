@@ -1,6 +1,7 @@
 'use strict';
 
 const { errorResponse } = require('../utils/responseFormatter');
+const logger = require('../config/logger');
 
 /**
  * 404 Not Found Middleware
@@ -31,10 +32,16 @@ const notFound = (req, res, next) => {
  * @param {import('express').NextFunction} next
  */
 const errorHandler = (err, req, res, next) => { // eslint-disable-line no-unused-vars
-  // Log the error stack in non-production environments for debugging
-  if (process.env.NODE_ENV !== 'production') {
-    console.error('🔴  Error:', err.stack || err.message);
-  }
+  logger.error(
+    {
+      err,
+      requestId: req.id,
+      method: req.method,
+      url: req.originalUrl,
+      userId: req.user?._id,
+    },
+    'Request failed'
+  );
 
   // Default to 500 if no status code is set on the error
   let statusCode = err.statusCode || err.status || 500;
