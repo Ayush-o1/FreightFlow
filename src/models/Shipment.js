@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto   = require('crypto');
 const mongoose = require('mongoose');
 
 // ─── Sub-schema: Location ─────────────────────────────────────────────────────
@@ -116,6 +117,15 @@ const shipmentSchema = new mongoose.Schema(
       type: [statusHistorySchema],
       default: [],
     },
+    trackingNumber: {
+      // Auto-generated on first save. Format: FF-YYYYMMDD-XXXXXXXX
+      // Unique and sparse — existing documents without this field are not indexed.
+      // Backward-compatible: old documents simply return undefined for this field.
+      type:   String,
+      unique: true,
+      sparse: true, // null/undefined values are excluded from the unique index
+      index:  true,
+    },
   },
   {
     timestamps: true,
@@ -127,6 +137,26 @@ const shipmentSchema = new mongoose.Schema(
 shipmentSchema.index({ shipper: 1, createdAt: -1 });
 shipmentSchema.index({ driver: 1, status: 1 });
 shipmentSchema.index({ status: 1 });
+// trackingNumber unique sparse index is defined inline on the field above.
+
+// ─── Pre-save Hook: Auto-generate trackingNumber ───────────────────────────────
+// Runs only on the first save (isNew check) so existing documents are never touched.
+// Format: FF-YYYYMMDD-XXXXXXXX (date + 8 random hex chars = 16^8 = 4.3B combinations)
+shipmentSchema.pre('save', function generateTrackingNumber(next) {
+  if (!this.isNew || this.trackingNumber) return next();
+
+  const today  = new Date();
+  const yyyymmdd = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, '0'),
+    String(today.getDate()).padStart(2, '0'),
+  ].join('');
+
+  // 8 random hex chars — low collision probability, not cryptographically sensitive
+  const suffix = crypto.randomBytes(4).toString('hex').toUpperCase();
+  this.trackingNumber = `FF-${yyyymmdd}-${suffix}`;
+  next();
+});
 
 // ─── Transform: Remove __v ────────────────────────────────────────────────────
 shipmentSchema.set('toJSON', {

@@ -73,6 +73,12 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
+// ─── Indexes ──────────────────────────────────────────────────────────────────
+// email is already unique-indexed via the field definition above.
+// Compound index for admin/driver-assignment queries that filter by role + isActive.
+// Covers: GET /api/admin/drivers (role:'driver', isActive:true)
+userSchema.index({ role: 1, isActive: 1 });
+
 // ─── Transform: Remove __v from JSON output ───────────────────────────────────
 userSchema.set('toJSON', {
   transform: (doc, ret) => {

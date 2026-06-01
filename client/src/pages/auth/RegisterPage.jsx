@@ -77,8 +77,11 @@ export default function RegisterPage() {
     if (!formData.password) {
       errs.password = 'Password is required.';
       valid = false;
-    } else if (formData.password.length < 6) {
-      errs.password = 'Password must be at least 6 characters.';
+    } else if (formData.password.length < 8) {
+      errs.password = 'Password must be at least 8 characters.';
+      valid = false;
+    } else if (formData.password.length > 128) {
+      errs.password = 'Password cannot exceed 128 characters.';
       valid = false;
     }
 
@@ -177,11 +180,11 @@ export default function RegisterPage() {
             label="Password"
             name="password"
             type="password"
-            placeholder="At least 6 characters"
+            placeholder="At least 8 characters"
             value={formData.password}
             onChange={handleChange}
             error={fieldErrors.password}
-            helperText="Must be at least 6 characters long."
+            helperText="Must be 8–128 characters long."
             required
             disabled={loading}
           />

@@ -1,5 +1,6 @@
 'use strict';
 
+const mongoose = require('mongoose');
 const Payment  = require('../models/Payment');
 const Shipment = require('../models/Shipment');
 const { generateMockTransactionId } = require('../services/paymentService');
@@ -17,9 +18,20 @@ const VALID_PAYMENT_METHODS = ['card', 'upi', 'netbanking'];
 /**
  * POST /api/payments/initiate/:shipmentId
  * Creates a new pending payment record for a shipment.
+ *
+ * Atomicity guarantee (Mongoose transaction):
+ *   Payment.create() + Shipment.paymentStatus update run in one atomic transaction.
+ *   If either operation fails, both are rolled back — eliminating paymentStatus drift
+ *   where a payment row exists but the shipment still reads 'unpaid' (or vice versa).
+ *
+ * Requirements: MongoDB replica set (or mongos). Standalone instances don't support
+ *   multi-document transactions. In that case, the catch block re-aborts and re-throws.
+ *
  * Access: Shipper only (own shipments)
  */
 const initiatePayment = async (req, res, next) => {
+  const session = await mongoose.startSession();
+
   try {
     const { shipmentId } = req.params;
     const { amount, paymentMethod } = req.body;
@@ -46,7 +58,7 @@ const initiatePayment = async (req, res, next) => {
     }
 
     // 3. Validate shipment exists
-    const shipment = await Shipment.findById(shipmentId);
+    const shipment = await Shipment.findById(shipmentId).session(session);
     if (!shipment) {
       return errorResponse(res, NOT_FOUND, 'Shipment not found.');
     }
@@ -61,7 +73,7 @@ const initiatePayment = async (req, res, next) => {
     }
 
     // 5. Check if a payment already exists for this shipment
-    const existingPayment = await Payment.findOne({ shipment: shipmentId });
+    const existingPayment = await Payment.findOne({ shipment: shipmentId }).session(session);
     if (existingPayment) {
       return errorResponse(
         res,
@@ -70,21 +82,35 @@ const initiatePayment = async (req, res, next) => {
       );
     }
 
-    // 6. Create the payment in pending state
-    const payment = await Payment.create({
-      shipment:      shipmentId,
-      shipper:       req.user._id,
-      amount:        parsedAmount,
-      paymentMethod,
-      status:        'pending',
-    });
+    // 6. Atomic: create payment record + sync shipment.paymentStatus in one transaction
+    let payment;
+    await session.withTransaction(async () => {
+      // Payment.create with session returns an array — destructure the first element
+      [payment] = await Payment.create(
+        [
+          {
+            shipment:      shipmentId,
+            shipper:       req.user._id,
+            amount:        parsedAmount,
+            paymentMethod,
+            status:        'pending',
+          },
+        ],
+        { session }
+      );
 
-    // 7. Sync shipment paymentStatus
-    await Shipment.findByIdAndUpdate(shipmentId, { paymentStatus: 'pending' });
+      await Shipment.findByIdAndUpdate(
+        shipmentId,
+        { paymentStatus: 'pending' },
+        { session }
+      );
+    });
 
     return successResponse(res, CREATED, 'Payment initiated successfully.', { payment });
   } catch (error) {
     next(error);
+  } finally {
+    session.endSession();
   }
 };
 
@@ -95,10 +121,18 @@ const initiatePayment = async (req, res, next) => {
  * POST /api/payments/confirm/:paymentId
  * Simulates payment confirmation — succeeds or fails based on body.simulate.
  *
+ * Atomicity guarantee (Mongoose transaction):
+ *   payment.save() + Shipment.paymentStatus update run atomically.
+ *   If either fails, both roll back — paymentStatus on Shipment always matches
+ *   the Payment.status (eliminates the drift where Payment says 'paid' but
+ *   Shipment.paymentStatus still reads 'pending').
+ *
  * Body: { simulate: 'success' | 'failure' }
  * Access: Shipper only (own payments)
  */
 const confirmPayment = async (req, res, next) => {
+  const session = await mongoose.startSession();
+
   try {
     const { paymentId } = req.params;
     const { simulate }  = req.body;
@@ -113,7 +147,7 @@ const confirmPayment = async (req, res, next) => {
     }
 
     // 2. Find the payment
-    const payment = await Payment.findById(paymentId);
+    const payment = await Payment.findById(paymentId).session(session);
     if (!payment) {
       return errorResponse(res, NOT_FOUND, 'Payment record not found.');
     }
@@ -136,25 +170,34 @@ const confirmPayment = async (req, res, next) => {
       );
     }
 
-    if (simulate === 'success') {
-      payment.status        = 'paid';
-      payment.transactionId = generateMockTransactionId();
-      payment.paidAt        = new Date();
-      await payment.save();
+    // 5. Atomic update — payment status + shipment paymentStatus in one transaction
+    await session.withTransaction(async () => {
+      if (simulate === 'success') {
+        payment.status        = 'paid';
+        payment.transactionId = generateMockTransactionId();
+        payment.paidAt        = new Date();
+      } else {
+        payment.status = 'failed';
+      }
+      await payment.save({ session });
 
-      await Shipment.findByIdAndUpdate(payment.shipment, { paymentStatus: 'paid' });
+      const newPaymentStatus = simulate === 'success' ? 'paid' : 'failed';
+      await Shipment.findByIdAndUpdate(
+        payment.shipment,
+        { paymentStatus: newPaymentStatus },
+        { session }
+      );
+    });
 
-      return successResponse(res, OK, 'Payment confirmed successfully.', { payment });
-    } else {
-      payment.status = 'failed';
-      await payment.save();
+    const message = simulate === 'success'
+      ? 'Payment confirmed successfully.'
+      : 'Payment simulation failed as requested.';
 
-      await Shipment.findByIdAndUpdate(payment.shipment, { paymentStatus: 'failed' });
-
-      return successResponse(res, OK, 'Payment simulation failed as requested.', { payment });
-    }
+    return successResponse(res, OK, message, { payment });
   } catch (error) {
     next(error);
+  } finally {
+    session.endSession();
   }
 };
 
