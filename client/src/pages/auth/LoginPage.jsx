@@ -4,7 +4,7 @@
  *
  * Endpoint: POST /api/auth/login
  * Body:     { email, password }
- * Success:  response.data.data.token + response.data.data.user
+ * Success:  response.data.data.user (token set as httpOnly cookie — not in body)
  * Error:    response.data.message
  *
  * On success: calls login() from AuthContext, then redirects by role.
@@ -73,10 +73,10 @@ export default function LoginPage() {
         password,
       });
 
-      const { token, user } = response.data.data;
+      const { user } = response.data.data;
 
-      // Persist session and update context
-      login(user, token);
+      // Token is in httpOnly cookie — set state with user data only
+      login(user);
 
       // Redirect based on role
       const destination = ROLE_REDIRECT[user.role] ?? '/login';

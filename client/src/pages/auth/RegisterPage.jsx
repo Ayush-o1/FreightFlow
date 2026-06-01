@@ -4,8 +4,8 @@
  *
  * Endpoint: POST /api/auth/register
  * Body:     { name, email, password, role }
- * Success:  201 → response.data.data.token + response.data.data.user
- *           Backend returns a token immediately — so we log the user in directly.
+ * Success:  201 → response.data.data.user (token set as httpOnly cookie — not in body)
+ *           Backend registers the user and sets auth cookies immediately.
  * Error:    response.data.message
  *
  * Role values accepted by backend: 'shipper' | 'driver' (lowercase).
@@ -107,9 +107,9 @@ export default function RegisterPage() {
         role:     formData.role, // 'shipper' | 'driver' — matches backend enum
       });
 
-      // Backend returns 201 with token + user — log in immediately
-      const { token, user } = response.data.data;
-      login(user, token);
+      // Token is in httpOnly cookie — set state with user data only
+      const { user } = response.data.data;
+      login(user);
 
       const destination = ROLE_REDIRECT[user.role] ?? '/login';
       navigate(destination, { replace: true });

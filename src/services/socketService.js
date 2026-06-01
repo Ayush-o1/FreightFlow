@@ -44,7 +44,11 @@ const { setIO }  = require('../utils/getIO');
 const initSocket = (httpServer) => {
   const io = new Server(httpServer, {
     cors: {
-      origin:  process.env.CLIENT_URL,
+      // Guard against undefined CLIENT_URL — undefined blocks all cross-origin connections.
+      // In dev, fall back to localhost:5173 (Vite default port).
+      origin: process.env.CLIENT_URL
+        || (process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : false),
+      credentials: true,   // Required: browser must send the httpOnly cookie on WS upgrade
       methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     },
   });

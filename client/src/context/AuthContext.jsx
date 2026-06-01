@@ -3,93 +3,111 @@
  * Full authentication state implementation for FreightFlow.
  *
  * Provides:
- *   user     — { _id, name, email, role } | null
- *   token    — JWT string | null
- *   isLoading — true while localStorage hydration runs on mount
- *   login(userData, token) — persists session, sets state
- *   logout(navigate)       — clears session, redirects to /login
+ *   user      — { _id, name, email, role, isActive, createdAt, updatedAt } | null
+ *   isLoading — true while session hydration (GET /api/auth/me) is in progress on mount
+ *   login(userData) — sets user state after successful login/register API call
+ *   logout(navigate) — calls POST /api/auth/logout, clears state, redirects to /login
  *
- * Note on logout: useNavigate cannot be called inside a context provider
- * directly (it requires a Router ancestor). We accept `navigate` as an
- * argument so callers (components inside Router) pass it in.
+ * Session storage strategy (Phase 2):
+ *   Tokens are stored exclusively in httpOnly cookies (not accessible to JavaScript).
+ *   On every app mount/refresh, GET /api/auth/me is called to hydrate user state from
+ *   the server session. isLoading stays true until this call resolves.
+ *
+ * No localStorage is used for auth — this eliminates the XSS token-theft vector.
  */
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import axiosInstance from '../api/axiosInstance';
 
 const AuthContext = createContext(null);
-
-// ── Storage keys ──────────────────────────────────────────────────────────────
-const TOKEN_KEY = 'ff_token';
-const USER_KEY  = 'ff_user';
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 export function AuthProvider({ children }) {
   const [user,      setUser]      = useState(null);
-  const [token,     setToken]     = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const cancelledRef = useRef(false);
 
   /**
-   * Mount effect: hydrate auth state from localStorage.
-   * Runs once. Catches corrupt JSON and clears storage if needed.
+   * Mount effect: hydrate auth state from the server session.
+   * Calls GET /api/auth/me — succeeds if a valid ff_access_token cookie exists.
+   * On 401 (no session / expired and refresh failed): sets user to null.
+   * isLoading is set to false regardless of outcome.
    */
   useEffect(() => {
-    try {
-      const storedToken = localStorage.getItem(TOKEN_KEY);
-      const storedUser  = localStorage.getItem(USER_KEY);
+    cancelledRef.current = false;
 
-      if (storedToken && storedUser) {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-      }
-    } catch {
-      // Corrupt data — force a clean state
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(USER_KEY);
-    } finally {
-      setIsLoading(false);
-    }
+    axiosInstance
+      .get('/api/auth/me')
+      .then((res) => {
+        if (cancelledRef.current) return;
+        const userData = res.data.data.user;
+        setUser({
+          _id:       userData._id,
+          name:      userData.name,
+          email:     userData.email,
+          role:      userData.role,
+          isActive:  userData.isActive,
+          createdAt: userData.createdAt,
+          updatedAt: userData.updatedAt,
+        });
+      })
+      .catch(() => {
+        // 401 = not logged in — expected on first visit or after session expiry.
+        // The axiosInstance interceptor will NOT redirect on this specific call
+        // (it guards against /api/auth/me without _retry to allow this path).
+        if (!cancelledRef.current) setUser(null);
+      })
+      .finally(() => {
+        if (!cancelledRef.current) setIsLoading(false);
+      });
+
+    return () => {
+      cancelledRef.current = true;
+    };
   }, []);
 
   /**
-   * login — called after a successful API authentication response.
-   * @param {Object} userData — { _id | id, name, email, role }
-   * @param {string} jwt      — JWT string from backend
+   * login — called after a successful API login or register response.
+   * The token is in an httpOnly cookie — we only need to set the user state.
+   * @param {Object} userData — { _id, name, email, role, isActive, ... }
    */
-  const login = (userData, jwt) => {
-    // Normalize: backend login returns `id`, register returns `_id`.
-    // Store consistently as `_id` so the rest of the app always uses `_id`.
-    const normalized = {
-      _id:   userData._id ?? userData.id,
-      name:  userData.name,
-      email: userData.email,
-      role:  userData.role,
-    };
-
-    setToken(jwt);
-    setUser(normalized);
-    localStorage.setItem(TOKEN_KEY, jwt);
-    localStorage.setItem(USER_KEY, JSON.stringify(normalized));
+  const login = (userData) => {
+    setUser({
+      _id:       userData._id,
+      name:      userData.name,
+      email:     userData.email,
+      role:      userData.role,
+      isActive:  userData.isActive,
+      createdAt: userData.createdAt,
+      updatedAt: userData.updatedAt,
+    });
   };
 
   /**
-   * logout — clears all auth state.
+   * logout — invalidates the server session and clears client state.
+   * Calls POST /api/auth/logout (which clears DB refresh token + cookies).
+   * If the access token is already expired, the call may fail — we clear
+   * client state regardless and redirect to /login.
+   *
    * @param {Function} navigate — React Router navigate fn from the calling component.
-   *   Pass navigate from useNavigate() in the component that triggers logout.
    */
-  const logout = (navigate) => {
-    setToken(null);
-    setUser(null);
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    // navigate may not be provided in edge cases — fall back to hard redirect
-    if (typeof navigate === 'function') {
-      navigate('/login', { replace: true });
-    } else {
-      window.location.href = '/login';
+  const logout = async (navigate) => {
+    try {
+      await axiosInstance.post('/api/auth/logout');
+    } catch {
+      // Swallow — clear client state even if the server call fails
+      // (e.g. access token already expired)
+    } finally {
+      setUser(null);
+      if (typeof navigate === 'function') {
+        navigate('/login', { replace: true });
+      } else {
+        window.location.href = '/login';
+      }
     }
   };
 
-  const value = { user, token, isLoading, login, logout };
+  const value = { user, isLoading, login, logout };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

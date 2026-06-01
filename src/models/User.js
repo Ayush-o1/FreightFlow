@@ -37,8 +37,13 @@ const userSchema = new mongoose.Schema(
       default: 'shipper',
     },
     isActive: {
-      type: Boolean,
+      type:    Boolean,
       default: true,
+    },
+    refreshToken: {
+      type:    String,
+      default: null,
+      select:  false, // Never returned in queries — contains SHA-256 hash of raw refresh token
     },
   },
   {

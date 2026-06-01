@@ -5,47 +5,102 @@
  * Features:
  *  - Base URL from VITE_API_BASE_URL env variable
  *  - 10-second request timeout
- *  - Request interceptor: attaches JWT token from localStorage
- *  - Response interceptor: handles 401 by clearing session and redirecting
+ *  - withCredentials: true — browser automatically sends httpOnly auth cookies
+ *  - No manual Authorization header injection — cookies handle auth transparently
+ *  - Response interceptor: on 401, attempts silent token refresh via POST /api/auth/refresh
+ *    - If refresh succeeds: retries the original failed request transparently
+ *    - If refresh fails:    redirects to /login
+ *  - Concurrent 401 handling: queues in-flight requests during a refresh, retries all on success
  */
 
 import axios from 'axios';
 
 const axiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
-  timeout: 10000,
+  baseURL:         import.meta.env.VITE_API_BASE_URL,
+  timeout:         10000,
+  withCredentials: true,   // Send httpOnly auth cookies automatically with every request
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-/* ----- REQUEST INTERCEPTOR -----
-   Attaches the JWT token to every outgoing request if one exists in storage.
-*/
-axiosInstance.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('ff_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+// ── Refresh queue state ────────────────────────────────────────────────────────
+// Prevents multiple simultaneous refresh calls when several requests return 401 at once.
+let isRefreshing  = false;
+let failedQueue   = [];
 
-/* ----- RESPONSE INTERCEPTOR -----
-   On a 401 Unauthorized response: clear local storage and redirect to /login.
-   All other responses (success or error) pass through normally.
-*/
+const processQueue = (error) => {
+  failedQueue.forEach(({ resolve, reject }) => {
+    if (error) {
+      reject(error);
+    } else {
+      resolve();
+    }
+  });
+  failedQueue = [];
+};
+
+// ── Response interceptor ───────────────────────────────────────────────────────
 axiosInstance.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.clear();
-      // Use window.location so this works outside React Router context
-      window.location.href = '/login';
+
+  async (error) => {
+    const originalRequest = error.config;
+    const status          = error.response?.status;
+
+    // Pass through non-401 errors immediately
+    if (status !== 401) {
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
+
+    // ── Safety guards: do NOT attempt refresh in these cases ─────────────────
+
+    // Guard 1: The refresh endpoint itself returned 401 — do not retry again
+    if (originalRequest.url?.includes('/api/auth/refresh')) {
+      window.location.href = '/login';
+      return Promise.reject(error);
+    }
+
+    // Guard 2: GET /api/auth/me during initial hydration returned 401 —
+    // this means the user is not logged in. Let AuthContext's .catch() handle it.
+    // Do NOT redirect here — this is the expected "no session" path on first visit.
+    if (originalRequest.url?.includes('/api/auth/me') && !originalRequest._retry) {
+      return Promise.reject(error);
+    }
+
+    // Guard 3: Already retried once — stop to prevent loops
+    if (originalRequest._retry) {
+      window.location.href = '/login';
+      return Promise.reject(error);
+    }
+
+    // ── Queue management: if refresh already in progress, wait for it ─────────
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        failedQueue.push({ resolve, reject });
+      })
+        .then(() => axiosInstance(originalRequest))
+        .catch((err) => Promise.reject(err));
+    }
+
+    // ── Attempt token refresh ─────────────────────────────────────────────────
+    originalRequest._retry = true;
+    isRefreshing           = true;
+
+    try {
+      // POST /api/auth/refresh reads ff_refresh_token cookie and sets new cookies.
+      // withCredentials is inherited from the instance — cookies are sent automatically.
+      await axiosInstance.post('/api/auth/refresh');
+
+      processQueue(null);                    // Resolve all queued requests
+      return axiosInstance(originalRequest); // Retry the original request
+    } catch (refreshError) {
+      processQueue(refreshError);            // Reject all queued requests
+      window.location.href = '/login';
+      return Promise.reject(refreshError);
+    } finally {
+      isRefreshing = false;
+    }
   }
 );
 

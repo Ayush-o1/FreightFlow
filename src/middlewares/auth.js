@@ -16,21 +16,24 @@ const { errorResponse } = require('../utils/responseFormatter');
  */
 const protect = async (req, res, next) => {
   try {
-    // 1. Extract token from Authorization header
-    const authHeader = req.headers.authorization;
+    // 1. Extract token — cookie takes priority over Authorization header.
+    //    Cookie:  set by login/register/refresh endpoints (httpOnly, not JS-readable)
+    //    Header:  fallback for API clients (curl, Postman, mobile apps)
+    let token = req.cookies?.ff_access_token;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!token) {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.split(' ')[1];
+      }
+    }
+
+    if (!token) {
       return errorResponse(
         res,
         401,
         'Access denied. No token provided. Please log in.'
       );
-    }
-
-    const token = authHeader.split(' ')[1];
-
-    if (!token) {
-      return errorResponse(res, 401, 'Access denied. Malformed token.');
     }
 
     // 2. Verify token (throws JsonWebTokenError or TokenExpiredError on failure)

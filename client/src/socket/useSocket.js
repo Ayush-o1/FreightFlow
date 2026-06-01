@@ -7,6 +7,8 @@
  *   ─ Disconnects cleanly when the user logs out or the component unmounts.
  *   ─ Call this ONCE, inside DashboardLayout, so one connection covers the whole session.
  *   ─ No 'joinShipmentRoom' emit here — rooms are per-shipment, joined by individual pages.
+ *   ─ Auth is handled via httpOnly cookies (sent automatically on WS upgrade) —
+ *     no manual token attachment is needed.
  *
  * useSocketEvent(eventName, handler)
  *   ─ Registers a socket.on listener and cleans it up on unmount or dependency change.
@@ -31,13 +33,14 @@ import socket        from './socketClient';
  * Returns the socket instance for any direct use if needed.
  */
 export function useSocketConnection() {
-  const { user, token } = useAuth();
+  const { user } = useAuth();
 
   useEffect(() => {
-    if (!user || !token) return;
+    if (!user) return;
 
-    // Attach auth token so backend middleware can identify the user if needed
-    socket.auth = { token };
+    // Auth is via httpOnly cookie (withCredentials: true on socketClient).
+    // No manual token attachment needed — the browser sends the cookie automatically
+    // during the WebSocket upgrade handshake.
     socket.connect();
 
     // NOTE: backend does NOT use per-user rooms — only per-shipment rooms.
@@ -46,7 +49,7 @@ export function useSocketConnection() {
     return () => {
       socket.disconnect();
     };
-  }, [user, token]);
+  }, [user]);
 
   return socket;
 }
