@@ -11,13 +11,22 @@
  * ══════════════════════════════════════════════════════════
  */
 
+const logMockEmail = (message) => {
+  if (process.env.NODE_ENV === 'production') {
+    console.log('[EMAIL] Mock notification suppressed in production.');
+    return;
+  }
+
+  console.log(message);
+};
+
 /**
  * Notify shipper that their shipment has been created.
  * @param {Object} shipment - Mongoose Shipment document
  * @param {Object} shipper  - User object (name, email)
  */
 const notifyShipmentCreated = (shipment, shipper) => {
-  console.log(`
+  logMockEmail(`
 [EMAIL] To: ${shipper.email}
   Subject: Shipment Created — ${shipment._id}
   Body:    Your shipment has been created successfully.
@@ -35,14 +44,14 @@ const notifyShipmentCreated = (shipment, shipper) => {
  */
 const notifyDriverAssigned = (shipment, shipper, driver) => {
   // Notify the shipper
-  console.log(`
+  logMockEmail(`
 [EMAIL] To: ${shipper.email}
   Subject: Driver Assigned — ${shipment._id}
   Body:    Driver ${driver.name} has been assigned to your shipment.
   `);
 
   // Notify the driver
-  console.log(`
+  logMockEmail(`
 [EMAIL] To: ${driver.email}
   Subject: New Assignment — ${shipment._id}
   Body:    You have been assigned shipment ${shipment._id}.
@@ -57,7 +66,7 @@ const notifyDriverAssigned = (shipment, shipper, driver) => {
  * @param {string} newStatus  - The new delivery status
  */
 const notifyStatusUpdated = (shipment, shipper, newStatus) => {
-  console.log(`
+  logMockEmail(`
 [EMAIL] To: ${shipper.email}
   Subject: Shipment Update — ${shipment._id}
   Body:    Your shipment status is now: ${newStatus}
@@ -70,7 +79,7 @@ const notifyStatusUpdated = (shipment, shipper, newStatus) => {
  * @param {Object} shipper  - User object (name, email)
  */
 const notifyDelivered = (shipment, shipper) => {
-  console.log(`
+  logMockEmail(`
 [EMAIL] To: ${shipper.email}
   Subject: Delivered — ${shipment._id}
   Body:    Your shipment has been delivered. Thank you!

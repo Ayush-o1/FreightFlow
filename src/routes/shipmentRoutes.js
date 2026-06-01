@@ -6,6 +6,7 @@ const {
   createShipment,
   getMyShipments,
   getShipmentById,
+  cancelShipment,
 } = require('../controllers/shipmentController');
 const { protect, authorizeRoles } = require('../middlewares/auth');
 const validateObjectId            = require('../middlewares/validateObjectId');
@@ -65,6 +66,24 @@ router.get(
   authorizeRoles('shipper', 'driver', 'admin'),
   validateObjectId(),
   getShipmentById
+);
+
+// @route   PATCH /api/shipments/:id/cancel
+// @desc    Cancel a pending shipment (shipper only, own shipments)
+// @access  Private — Shipper only
+const cancelShipmentValidation = [
+  body('note')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Note cannot exceed 500 characters.'),
+];
+router.patch(
+  '/:id/cancel',
+  authorizeRoles('shipper'),
+  validateObjectId(),
+  cancelShipmentValidation,
+  cancelShipment
 );
 
 module.exports = router;

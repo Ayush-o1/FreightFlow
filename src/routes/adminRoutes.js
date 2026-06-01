@@ -1,13 +1,16 @@
 'use strict';
 
 const express = require('express');
+const { body } = require('express-validator');
 const {
   getAllShipments,
   getAllUsers,
   getAllDrivers,
   assignDriver,
+  cancelShipmentAsAdmin,
   getShipmentById,
   getAnalytics,
+  updateUserStatus,
 } = require('../controllers/adminController');
 const { protect, authorizeRoles } = require('../middlewares/auth');
 const validateObjectId            = require('../middlewares/validateObjectId');
@@ -41,7 +44,36 @@ router.get('/shipments/:id', validateObjectId(), getShipmentById);
 // @route   PATCH /api/admin/shipments/:id/assign
 // @desc    Assign a driver to a pending shipment
 // @access  Admin only
-router.patch('/shipments/:id/assign', validateObjectId(), assignDriver);
+const assignDriverValidation = [
+  body('driverId')
+    .notEmpty()
+    .withMessage('driverId is required.')
+    .isMongoId()
+    .withMessage('driverId must be a valid MongoDB ObjectId.'),
+  body('note')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Note cannot exceed 500 characters.'),
+];
+router.patch('/shipments/:id/assign', validateObjectId(), assignDriverValidation, assignDriver);
+
+// @route   PATCH /api/admin/shipments/:id/cancel
+// @desc    Cancel any non-cancelled shipment
+// @access  Admin only
+const cancelShipmentValidation = [
+  body('note')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Note cannot exceed 500 characters.'),
+];
+router.patch(
+  '/shipments/:id/cancel',
+  validateObjectId(),
+  cancelShipmentValidation,
+  cancelShipmentAsAdmin
+);
 
 // ─── User Routes ──────────────────────────────────────────────────────────────
 
@@ -54,5 +86,20 @@ router.get('/users', getAllUsers);
 // @desc    Get all active drivers (lightweight, for dropdown population)
 // @access  Admin only
 router.get('/drivers', getAllDrivers);
+
+// @route   PATCH /api/admin/users/:id/status
+// @desc    Activate or deactivate a user account
+//          Deactivating also invalidates the user's refresh token (forces re-login)
+//          Admin cannot deactivate their own account
+// @access  Admin only
+const updateUserStatusValidation = [
+  body('isActive')
+    .notEmpty()
+    .withMessage('isActive is required.')
+    .isBoolean()
+    .withMessage('isActive must be a boolean (true or false).')
+    .toBoolean(),
+];
+router.patch('/users/:id/status', validateObjectId(), updateUserStatusValidation, updateUserStatus);
 
 module.exports = router;

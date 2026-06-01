@@ -10,7 +10,7 @@ const app  = require('./src/app');
 const connectDB    = require('./src/config/db');
 const { initSocket } = require('./src/services/socketService');
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 // Create HTTP server (Socket.io will attach to this in a later phase)
 const server = http.createServer(app);

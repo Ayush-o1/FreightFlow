@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const { body } = require('express-validator');
 const {
   getAssignedShipments,
   getShipmentDetail,
@@ -28,6 +29,18 @@ router.get('/shipments/:id', validateObjectId(), getShipmentDetail);
 // @route   PATCH /api/driver/shipments/:id/status
 // @desc    Advance shipment delivery status (assigned→picked_up→in_transit→delivered)
 // @access  Driver only
-router.patch('/shipments/:id/status', validateObjectId(), updateShipmentStatus);
+const updateStatusValidation = [
+  body('status')
+    .notEmpty()
+    .withMessage('Status is required.')
+    .isIn(['picked_up', 'in_transit', 'delivered'])
+    .withMessage("Status must be one of: 'picked_up', 'in_transit', 'delivered'."),
+  body('note')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Note cannot exceed 500 characters.'),
+];
+router.patch('/shipments/:id/status', validateObjectId(), updateStatusValidation, updateShipmentStatus);
 
 module.exports = router;

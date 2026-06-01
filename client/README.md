@@ -12,8 +12,8 @@ FreightFlow is a full-stack logistics SaaS platform connecting **shippers**, **d
 
 | Layer | Technology |
 |---|---|
-| Framework | React 18 + Vite 5 |
-| Routing | React Router v6 |
+| Framework | React 18 + Vite 8 |
+| Routing | React Router |
 | Styling | Tailwind CSS v4 + custom CSS design tokens |
 | HTTP | Axios (single `axiosInstance`) |
 | Real-time | Socket.IO client |
@@ -148,6 +148,7 @@ client/
 |---|---|
 | `/driver/dashboard` | Active deliveries + stats |
 | `/driver/shipments` | All assignments + inline status update |
+| `/driver/shipments/:id` | Assigned shipment detail + status timeline |
 
 ### Admin (role: `admin`)
 | Route | Description |
@@ -161,9 +162,9 @@ client/
 
 ## Key Features
 
-- **JWT Authentication** — token stored in `localStorage`, auto-attached via Axios interceptor
+- **Cookie Authentication** — httpOnly auth cookies, CSRF header, and automatic refresh retry
 - **Role-based routing** — `ProtectedRoute` enforces access by role
-- **Real-time updates** — Socket.IO events update shipment status live without page refresh
+- **Real-time updates** — authorized Socket.IO shipment rooms update status live without page refresh
 - **Notification system** — In-app bell + toast stack for socket events
 - **Responsive design** — Mobile overlay sidebar, tablet icon-only sidebar, full desktop sidebar
 - **Skeleton loading** — All data-fetching pages show animated pulse skeletons while loading

@@ -20,7 +20,7 @@ import Spinner from '../components/ui/Spinner';
 export default function ProtectedRoute({ allowedRoles }) {
   const { user, isLoading } = useAuth();
 
-  // ── 1. Still loading from localStorage — hold render ──────────────────────
+  // ── 1. Still hydrating session from server (GET /api/auth/me in flight) ───────
   if (isLoading) {
     return (
       <div

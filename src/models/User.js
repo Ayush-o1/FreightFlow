@@ -25,7 +25,7 @@ const userSchema = new mongoose.Schema(
     password: {
       type: String,
       required: [true, 'Password is required'],
-      minlength: [6, 'Password must be at least 6 characters'],
+      minlength: [8, 'Password must be at least 8 characters'],
       select: false, // Never returned in queries by default
     },
     role: {
@@ -78,6 +78,10 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
 // Compound index for admin/driver-assignment queries that filter by role + isActive.
 // Covers: GET /api/admin/drivers (role:'driver', isActive:true)
 userSchema.index({ role: 1, isActive: 1 });
+userSchema.index(
+  { refreshToken: 1 },
+  { partialFilterExpression: { refreshToken: { $type: 'string' } } }
+);
 
 // ─── Transform: Remove __v from JSON output ───────────────────────────────────
 userSchema.set('toJSON', {

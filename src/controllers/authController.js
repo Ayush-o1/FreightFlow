@@ -6,29 +6,29 @@ const { validationResult } = require('express-validator');
 const User = require('../models/User');
 const { successResponse, errorResponse } = require('../utils/responseFormatter');
 const {
+  COOKIE_NAMES,
+  getAccessCookieOptions,
+  getRefreshCookieOptions,
+  getClearCookieOptions,
+} = require('../config/security');
+const { issueCsrfToken } = require('../middlewares/csrfProtection');
+const {
   OK, CREATED, BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, UNPROCESSABLE,
 } = require('../utils/httpStatus');
 
-// ─── Cookie Configuration ──────────────────────────────────────────────────────
-const COOKIE_ACCESS_OPTS = {
-  httpOnly: true,
-  secure:   process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
-  maxAge:   15 * 60 * 1000,              // 15 minutes
-};
-
-const COOKIE_REFRESH_OPTS = {
-  httpOnly: true,
-  secure:   process.env.NODE_ENV === 'production',
-  sameSite: 'strict',
-  maxAge:   7 * 24 * 60 * 60 * 1000,    // 7 days
-};
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Sign a 15-minute JWT access token. */
+/**
+ * Sign a short-lived JWT access token.
+ * Expiry is controlled by JWT_EXPIRES_IN env var (default: '15m').
+ * Set JWT_EXPIRES_IN in .env to override (e.g. '30m' for dev convenience).
+ */
 const signAccessToken = (userId) =>
-  jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: '15m' });
+  jwt.sign(
+    { id: userId },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || '15m' }
+  );
 
 /**
  * Generate a cryptographically random refresh token.
@@ -44,14 +44,20 @@ const generateRefreshToken = () => {
 
 /** Set both auth cookies on a response. */
 const setAuthCookies = (res, accessToken, rawRefreshToken) => {
-  res.cookie('ff_access_token',  accessToken,      COOKIE_ACCESS_OPTS);
-  res.cookie('ff_refresh_token', rawRefreshToken,   COOKIE_REFRESH_OPTS);
+  res.cookie(COOKIE_NAMES.access,  accessToken,     getAccessCookieOptions());
+  res.cookie(COOKIE_NAMES.refresh, rawRefreshToken, getRefreshCookieOptions());
 };
 
 /** Clear both auth cookies (used by logout). */
 const clearAuthCookies = (res) => {
-  res.clearCookie('ff_access_token',  { ...COOKIE_ACCESS_OPTS,  maxAge: 0 });
-  res.clearCookie('ff_refresh_token', { ...COOKIE_REFRESH_OPTS, maxAge: 0 });
+  res.clearCookie(
+    COOKIE_NAMES.access,
+    getClearCookieOptions(getAccessCookieOptions())
+  );
+  res.clearCookie(
+    COOKIE_NAMES.refresh,
+    getClearCookieOptions(getRefreshCookieOptions())
+  );
 };
 
 /** Return a safe user object (no password, no refreshToken hash). */
@@ -245,4 +251,21 @@ const getMe = async (req, res, next) => {
   }
 };
 
-module.exports = { register, login, logout, refresh, getMe };
+// ─────────────────────────────────────────────────────────────────────────────
+//  GET CSRF TOKEN
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * GET /api/auth/csrf
+ * Public bootstrap endpoint. Issues a non-httpOnly CSRF cookie and returns the
+ * same token so the SPA can send it in X-CSRF-Token on unsafe requests.
+ */
+const getCsrfToken = async (req, res, next) => {
+  try {
+    const csrfToken = issueCsrfToken(res);
+    return successResponse(res, OK, 'CSRF token issued successfully.', { csrfToken });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = { register, login, logout, refresh, getMe, getCsrfToken };

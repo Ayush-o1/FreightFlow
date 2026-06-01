@@ -11,9 +11,9 @@
  * No payment initiation UI.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, ChevronRight, ArrowRight } from 'lucide-react';
+import { Package, ArrowRight } from 'lucide-react';
 
 import DashboardLayout from '../../layouts/DashboardLayout';
 import PageHeader      from '../../components/shared/PageHeader';
@@ -21,9 +21,9 @@ import Card            from '../../components/ui/Card';
 import Badge           from '../../components/ui/Badge';
 import Button          from '../../components/ui/Button';
 import EmptyState      from '../../components/ui/EmptyState';
-import { getAllShipments } from '../../api/adminApi';
+import { getAllShipments, cancelShipmentAsAdmin } from '../../api/adminApi';
 import { formatDate, formatStatus, getStatusVariant } from '../../utils/formatters';
-import { useSocketEvent }    from '../../socket/useSocket';
+import { useSocketEvent, joinShipmentRoom, leaveShipmentRoom } from '../../socket/useSocket';
 import { useNotification }  from '../../hooks/useNotification';
 
 // ── Filter config ─────────────────────────────────────────────────────────────
@@ -95,7 +95,7 @@ function Pagination({ page, totalPages, onPrev, onNext }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function AdminShipments() {
   const navigate = useNavigate();
-  const { addNotification } = useNotification();
+  const { addNotification, showToast } = useNotification();
 
   const [shipments,   setShipments]   = useState([]);
   const [total,       setTotal]       = useState(0);
@@ -108,6 +108,7 @@ export default function AdminShipments() {
   const [statusFilter, setStatusFilter] = useState('');
   const [serverSearch, setServerSearch] = useState('');
   const [searchInput,  setSearchInput]  = useState('');
+  const [actionLoading, setActionLoading] = useState({});
 
   const PAGE_LIMIT = 10;
 
@@ -135,11 +136,20 @@ export default function AdminShipments() {
     fetchShipments(1);
   }, [fetchShipments]);
 
+  useEffect(() => {
+    if (!shipments.length) return undefined;
+
+    shipments.forEach((shipment) => joinShipmentRoom(shipment._id));
+
+    return () => {
+      shipments.forEach((shipment) => leaveShipmentRoom(shipment._id));
+    };
+  }, [shipments]);
+
   // ── Live: 'statusUpdated' — driver advanced a shipment status ─────────────
   // Payload: { shipmentId, newStatus, updatedBy, role, note, timestamp }
-  // Admin is not in any shipment room — but this fires if the socket global
-  // receives the broadcast. The server emits to room: `shipment_${shipmentId}`.
-  // Admin page updates state if the shipment is currently visible in the list.
+  // Admin joins rooms for visible rows above, so this page updates the rows
+  // that are currently visible in the paginated table.
   useSocketEvent('statusUpdated', useCallback((data) => {
     setShipments((prev) =>
       prev.map((s) =>
@@ -177,6 +187,34 @@ export default function AdminShipments() {
   const handleStatusFilter = (val) => {
     setStatusFilter(val);
     setPage(1);
+  };
+
+  const handleCancelShipment = async (shipmentId) => {
+    if (!window.confirm('Cancel this shipment?')) return;
+
+    setActionLoading((prev) => ({ ...prev, [shipmentId]: true }));
+
+    try {
+      const res = await cancelShipmentAsAdmin(shipmentId);
+      const updated = res.data?.data?.shipment;
+
+      if (updated) {
+        setShipments((prev) =>
+          prev.map((shipment) => (shipment._id === shipmentId ? updated : shipment))
+        );
+      }
+
+      showToast('success', 'Shipment cancelled successfully.');
+      addNotification(
+        'warning',
+        'Shipment Cancelled',
+        `Shipment #${shipmentId.slice(-6).toUpperCase()} was cancelled.`
+      );
+    } catch (err) {
+      showToast('error', err?.response?.data?.message ?? 'Failed to cancel shipment.');
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [shipmentId]: false }));
+    }
   };
 
   return (
@@ -335,6 +373,17 @@ export default function AdminShipments() {
                             }
                           >
                             Assign
+                          </Button>
+                        )}
+                        {s.status !== 'cancelled' && (
+                          <Button
+                            id={`cancel-shipment-${s._id}`}
+                            variant="danger"
+                            size="sm"
+                            loading={!!actionLoading[s._id]}
+                            onClick={() => handleCancelShipment(s._id)}
+                          >
+                            Cancel
                           </Button>
                         )}
                       </div>

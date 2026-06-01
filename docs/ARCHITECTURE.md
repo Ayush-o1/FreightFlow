@@ -16,7 +16,7 @@ This document describes the architectural decisions behind FreightFlow.
 │   └────┬─────┘  └────┬─────┘  └──────────┬───────────┘  │
 │        │             │                    │              │
 │   ┌────▼─────────────▼────────────────────▼───────────┐  │
-│   │          Axios (JWT in Authorization header)       │  │
+│   │          Axios (httpOnly cookies + CSRF header)    │  │
 │   │          Socket.io-client (per-shipment rooms)     │  │
 │   └────────────────────────┬──────────────────────────┘  │
 └───────────────────────────-│──────────────────────────────┘
@@ -85,16 +85,18 @@ This makes client-side parsing predictable.
 
 ## Authentication
 
-JWT-based stateless authentication:
+Cookie-based JWT authentication:
 
-1. Login → server signs a JWT containing `{ id, role }` with `JWT_SECRET`
-2. Client stores token in memory (AuthContext) and persists it in `localStorage`
-3. All protected routes use the `protect` middleware which:
-   - Extracts the `Bearer` token from the `Authorization` header
+1. The SPA bootstraps a CSRF token with `GET /api/auth/csrf`
+2. Login/register set `ff_access_token` and `ff_refresh_token` as httpOnly cookies
+3. The refresh token is a high-entropy random value; MongoDB stores only its SHA-256 hash
+4. All protected routes use the `protect` middleware which:
+   - Extracts the access token from the cookie, with Bearer header fallback for API clients
    - Verifies the JWT signature and expiry
    - Confirms the user still exists and `isActive = true` in the database
    - Attaches the full user document to `req.user`
-4. `authorizeRoles(...roles)` then guards each route for specific roles
+5. Axios automatically calls `POST /api/auth/refresh` on 401 responses and retries once
+6. `authorizeRoles(...roles)` then guards each route for specific roles
 
 Admin accounts cannot be self-registered. They are created via `seedAdmin.js`.
 
@@ -107,6 +109,7 @@ Socket.io is attached to the same HTTP server as Express.
 **Room strategy:** One room per shipment — `shipment_<shipmentId>`
 
 - Clients call `joinShipmentRoom({ shipmentId })` to subscribe
+- The server authorizes every room join: only the shipment owner, assigned driver, or admin can join
 - When status or assignment changes, the controller retrieves the `io` singleton via `getIO()` and emits to the room
 - No global broadcasts — events are scoped to the relevant shipment
 
@@ -124,10 +127,11 @@ Socket.io is attached to the same HTTP server as Express.
 
 | Concern | Implementation |
 |---------|---------------|
-| Injection | Mongoose schema types + express-validator input sanitization |
+| Injection | Mongoose schema types + express-validator + express-mongo-sanitize |
 | XSS | Helmet sets `Content-Security-Policy` and other protective headers |
+| CSRF | Double-submit CSRF token required for unsafe cookie-auth requests |
 | Auth bypass | JWT verified on every protected request + active user check |
-| Brute force | express-rate-limit on `/api/auth` (10 req / 15 min / IP) |
+| Brute force | express-rate-limit on auth and business route groups |
 | CORS | Origin whitelist via `CLIENT_URL` env variable |
 | Password storage | bcryptjs with 12 salt rounds |
 | Secret exposure | `.env` excluded from git; no secrets in code or docs |
@@ -155,7 +159,7 @@ User (shipper) ──creates──▶ Shipment ◀──is assigned── User (
 
 No external state management library is used. State is handled via:
 
-- **React Context** — `AuthContext` (user, token, login, logout) and `NotificationContext` (bell history, toasts)
+- **React Context** — `AuthContext` (user, login, logout) and `NotificationContext` (bell history, toasts)
 - **Local component state** — page-level `useState` for data fetching results
 - **URL state** — `useSearchParams` for shipment filtering and assignment query params
 
@@ -164,14 +168,15 @@ No external state management library is used. State is handled via:
 Each domain has a dedicated API module in `src/api/`:
 
 ```
-axiosInstance.js     — shared Axios instance with JWT injected from AuthContext
+axiosInstance.js     — shared Axios instance with credentials, CSRF, and refresh retry
 adminApi.js          — admin endpoints
 shipmentApi.js       — shipper + shared shipment endpoints
 driverApi.js         — driver endpoints
 paymentApi.js        — payment endpoints
 ```
 
-The `axiosInstance` reads the token from context via a response interceptor pattern and automatically attaches `Authorization: Bearer <token>` to every request.
+The `axiosInstance` sends cookies with every request, attaches `X-CSRF-Token`
+for unsafe methods, and performs a queued refresh/retry flow on 401 responses.
 
 ### Routing
 

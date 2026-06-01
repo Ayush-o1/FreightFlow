@@ -24,6 +24,48 @@ const axiosInstance = axios.create({
   },
 });
 
+// ── CSRF token bootstrap ─────────────────────────────────────────────────────
+// Backend uses cookie auth, so unsafe requests must include X-CSRF-Token.
+const UNSAFE_METHODS = new Set(['post', 'put', 'patch', 'delete']);
+let csrfToken = null;
+let csrfPromise = null;
+
+const isCsrfEndpoint = (url = '') => url.includes('/api/auth/csrf');
+
+const ensureCsrfToken = async () => {
+  if (csrfToken) return csrfToken;
+
+  if (!csrfPromise) {
+    csrfPromise = axiosInstance
+      .get('/api/auth/csrf')
+      .then((res) => {
+        csrfToken = res.data?.data?.csrfToken;
+        return csrfToken;
+      })
+      .finally(() => {
+        csrfPromise = null;
+      });
+  }
+
+  return csrfPromise;
+};
+
+export const clearCsrfToken = () => {
+  csrfToken = null;
+};
+
+axiosInstance.interceptors.request.use(async (config) => {
+  const method = String(config.method || 'get').toLowerCase();
+
+  if (UNSAFE_METHODS.has(method) && !isCsrfEndpoint(config.url)) {
+    const token = await ensureCsrfToken();
+    config.headers = config.headers || {};
+    config.headers['X-CSRF-Token'] = token;
+  }
+
+  return config;
+});
+
 // ── Refresh queue state ────────────────────────────────────────────────────────
 // Prevents multiple simultaneous refresh calls when several requests return 401 at once.
 let isRefreshing  = false;
@@ -47,6 +89,18 @@ axiosInstance.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     const status          = error.response?.status;
+    const message         = error.response?.data?.message || '';
+
+    if (
+      status === 403 &&
+      message.includes('CSRF') &&
+      !originalRequest._csrfRetry
+    ) {
+      clearCsrfToken();
+      originalRequest._csrfRetry = true;
+      await ensureCsrfToken();
+      return axiosInstance(originalRequest);
+    }
 
     // Pass through non-401 errors immediately
     if (status !== 401) {

@@ -16,10 +16,9 @@
  * No localStorage is used for auth — this eliminates the XSS token-theft vector.
  */
 
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import axiosInstance from '../api/axiosInstance';
-
-const AuthContext = createContext(null);
+import AuthContext from './authContextValue';
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 export function AuthProvider({ children }) {
@@ -111,14 +110,3 @@ export function AuthProvider({ children }) {
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
-
-// ── Hook ──────────────────────────────────────────────────────────────────────
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used inside an <AuthProvider>');
-  }
-  return context;
-}
-
-export default AuthContext;

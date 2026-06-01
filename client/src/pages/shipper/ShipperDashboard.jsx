@@ -28,7 +28,6 @@ import PageHeader      from '../../components/shared/PageHeader';
 import Card            from '../../components/ui/Card';
 import Badge           from '../../components/ui/Badge';
 import Button          from '../../components/ui/Button';
-import Spinner         from '../../components/ui/Spinner';
 import EmptyState      from '../../components/ui/EmptyState';
 
 import { useAuth }              from '../../hooks/useAuth';

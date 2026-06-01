@@ -8,7 +8,8 @@
  *   3. Route card (left) + Cargo card (right) — 2-col grid
  *   4. Driver info card — only if driver is a populated object (not ObjectId string)
  *   5. Payment card — full 2-step payment flow (initiate → confirm)
- *   6. Cancel zone — OMITTED (no backend cancel endpoint exists)
+ *   6. Cancel zone — only shown for 'pending' shipments (shipper-only)
+ *      Requires confirmation before calling PATCH /api/shipments/:id/cancel
  *
  * Payment flow:
  *   paymentStatus === 'unpaid' → form: amount + paymentMethod → initiatePayment()
@@ -17,7 +18,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft,
   MapPin,
@@ -29,8 +30,6 @@ import {
   Clock,
   XCircle,
   RefreshCw,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 
 import DashboardLayout from '../../layouts/DashboardLayout';
@@ -40,7 +39,7 @@ import Button          from '../../components/ui/Button';
 import Select          from '../../components/ui/Select';
 import Input           from '../../components/ui/Input';
 
-import { getShipmentById }                         from '../../api/shipmentApi';
+import { getShipmentById, cancelShipment }               from '../../api/shipmentApi';
 import { getPaymentByShipment, initiatePayment, confirmPayment } from '../../api/paymentApi';
 import { formatDate, formatCurrency, formatStatus, getStatusVariant } from '../../utils/formatters';
 import { useSocketEvent, joinShipmentRoom, leaveShipmentRoom } from '../../socket/useSocket';
@@ -385,13 +384,18 @@ function PaymentSection({ shipment, payment, onRefresh }) {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function ShipmentDetail() {
   const { id }   = useParams();
-  const navigate = useNavigate();
   const { addNotification, showToast } = useNotification();
 
   const [shipment,     setShipment]     = useState(null);
   const [payment,      setPayment]      = useState(null);
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState('');
+
+  // Cancel state
+  const [cancelConfirm, setCancelConfirm] = useState(false);
+  const [cancelNote,    setCancelNote]    = useState('');
+  const [cancelling,    setCancelling]    = useState(false);
+  const [cancelError,   setCancelError]   = useState('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -455,6 +459,24 @@ export default function ShipmentDetail() {
     showToast('success', data.message ?? 'Your shipment has been delivered!');
   }, [id, addNotification, showToast]));
 
+  // ── Cancel handler ─────────────────────────────────────────────────────────
+  const handleCancel = useCallback(async () => {
+    try {
+      setCancelling(true);
+      setCancelError('');
+      const res = await cancelShipment(id, cancelNote.trim() || undefined);
+      const updated = res.data?.data?.shipment;
+      if (updated) setShipment(updated);
+      setCancelConfirm(false);
+      setCancelNote('');
+      showToast('info', 'Shipment cancelled successfully.');
+    } catch (err) {
+      setCancelError(err?.response?.data?.message ?? 'Failed to cancel shipment. Please try again.');
+    } finally {
+      setCancelling(false);
+    }
+  }, [id, cancelNote, showToast]);
+
   // ── Loading state ──────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -489,7 +511,7 @@ export default function ShipmentDetail() {
   }
 
   const { pickupLocation, deliveryLocation, goodsType, weight, description,
-          estimatedDelivery, status, paymentStatus, driver, statusHistory } = shipment;
+          estimatedDelivery, status, driver, statusHistory } = shipment;
 
   // Driver populated check — only render driver card if driver is an object with a name
   const driverIsPopulated = driver && typeof driver === 'object' && driver.name;
@@ -611,10 +633,80 @@ export default function ShipmentDetail() {
           onRefresh={fetchData}
         />
 
-        {/* ── 6. Cancel zone — OMITTED: no backend cancel endpoint ──────
-             The backend only exposes: POST /, GET /my, GET /:id.
-             There is no cancel/PATCH route. Section intentionally hidden.
-        ─────────────────────────────────────────────────────────────── */}
+        {/* ── 6. Cancel zone — only visible for 'pending' shipments ──────── */}
+        {status === 'pending' && (
+          <Card padding="lg" className="mt-5 border-red-200">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-sm font-semibold text-[var(--color-danger)] mb-1">
+                  Cancel Shipment
+                </h2>
+                <p className="text-xs text-[var(--color-text-secondary)]">
+                  Only pending shipments can be cancelled. This action cannot be undone.
+                </p>
+              </div>
+              {!cancelConfirm && (
+                <Button
+                  id="cancel-shipment-btn"
+                  variant="danger"
+                  size="sm"
+                  onClick={() => { setCancelConfirm(true); setCancelError(''); }}
+                >
+                  Cancel Shipment
+                </Button>
+              )}
+            </div>
+
+            {cancelConfirm && (
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label
+                    htmlFor="cancel-note"
+                    className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1"
+                  >
+                    Reason for cancellation <span className="text-[var(--color-text-muted)]">(optional)</span>
+                  </label>
+                  <textarea
+                    id="cancel-note"
+                    value={cancelNote}
+                    onChange={(e) => setCancelNote(e.target.value)}
+                    rows={2}
+                    maxLength={500}
+                    placeholder="e.g. Change of plans"
+                    className={[
+                      'w-full rounded-lg border px-3 py-2 text-sm resize-none',
+                      'bg-[var(--color-surface)] text-[var(--color-text-primary)]',
+                      'border-[var(--color-border)] focus:outline-none',
+                      'focus:ring-2 focus:ring-red-400 focus:border-transparent',
+                    ].join(' ')}
+                  />
+                </div>
+                {cancelError && (
+                  <p className="text-xs font-medium text-red-600">{cancelError}</p>
+                )}
+                <div className="flex gap-3">
+                  <Button
+                    id="confirm-cancel-btn"
+                    variant="danger"
+                    size="sm"
+                    loading={cancelling}
+                    onClick={handleCancel}
+                  >
+                    Yes, Cancel Shipment
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={cancelling}
+                    onClick={() => { setCancelConfirm(false); setCancelNote(''); setCancelError(''); }}
+                  >
+                    Keep Shipment
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
 
       </div>
     </DashboardLayout>

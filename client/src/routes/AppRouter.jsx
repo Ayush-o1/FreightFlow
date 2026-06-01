@@ -20,8 +20,9 @@ import ShipmentList     from '../pages/shipper/ShipmentList';
 import ShipmentDetail   from '../pages/shipper/ShipmentDetail';
 
 // Driver pages
-import DriverDashboard from '../pages/driver/DriverDashboard';
-import DriverShipments from '../pages/driver/DriverShipments';
+import DriverDashboard      from '../pages/driver/DriverDashboard';
+import DriverShipments     from '../pages/driver/DriverShipments';
+import DriverShipmentDetail from '../pages/driver/DriverShipmentDetail';
 
 // Admin pages
 import AdminDashboard from '../pages/admin/AdminDashboard';
@@ -59,8 +60,9 @@ const router = createBrowserRouter([
   {
     element: <ProtectedRoute allowedRoles={['driver']} />,
     children: [
-      { path: '/driver/dashboard',  element: <DriverDashboard /> },
-      { path: '/driver/shipments',  element: <DriverShipments /> },
+      { path: '/driver/dashboard',       element: <DriverDashboard /> },
+      { path: '/driver/shipments',       element: <DriverShipments /> },
+      { path: '/driver/shipments/:id',   element: <DriverShipmentDetail /> },
     ],
   },
 

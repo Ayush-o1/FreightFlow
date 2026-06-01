@@ -1,10 +1,11 @@
 'use strict';
 
+const { validationResult } = require('express-validator');
 const Shipment = require('../models/Shipment');
 const { successResponse, errorResponse } = require('../utils/responseFormatter');
 const { getIO } = require('../utils/getIO');
 const {
-  OK, BAD_REQUEST, FORBIDDEN, NOT_FOUND,
+  OK, BAD_REQUEST, FORBIDDEN, NOT_FOUND, UNPROCESSABLE,
 } = require('../utils/httpStatus');
 const {
   notifyStatusUpdated,
@@ -111,6 +112,11 @@ const getShipmentDetail = async (req, res, next) => {
  */
 const updateShipmentStatus = async (req, res, next) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return errorResponse(res, UNPROCESSABLE, errors.array()[0].msg);
+    }
+
     const { id } = req.params;
     const { status: requestedStatus, note } = req.body;
 

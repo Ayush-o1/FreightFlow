@@ -20,9 +20,8 @@
  *   </AuthProvider>
  */
 
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
-
-export const NotificationContext = createContext(null);
+import { useCallback, useRef, useState } from 'react';
+import NotificationContext from './notificationContextValue';
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 export function NotificationProvider({ children }) {
@@ -121,11 +120,4 @@ export function NotificationProvider({ children }) {
       {children}
     </NotificationContext.Provider>
   );
-}
-
-// ── Hook ──────────────────────────────────────────────────────────────────────
-export function useNotification() {
-  const ctx = useContext(NotificationContext);
-  if (!ctx) throw new Error('useNotification must be used inside <NotificationProvider>');
-  return ctx;
 }

@@ -13,7 +13,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Package, MapPin, Navigation, CheckCircle2, Clock, Truck,
+  Package, MapPin, Navigation, Truck,
 } from 'lucide-react';
 
 import DashboardLayout  from '../../layouts/DashboardLayout';
@@ -26,7 +26,7 @@ import { getMyAssignments }       from '../../api/driverApi';
 import { updateShipmentStatus }   from '../../api/shipmentApi';
 import { formatDate, formatStatus, getStatusVariant } from '../../utils/formatters';
 import { useNotification } from '../../hooks/useNotification';
-import { useSocketEvent }  from '../../socket/useSocket';
+import { useSocketEvent, joinShipmentRoom, leaveShipmentRoom }  from '../../socket/useSocket';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  STATUS PROGRESSION HELPERS (centralised)
@@ -242,6 +242,7 @@ function ShipmentCard({ shipment, onStatusUpdated, showToast }) {
                   id={`note-${shipment._id}`}
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
+                  maxLength={500}
                   placeholder={`e.g. Picked up from warehouse at ${new Date().toLocaleTimeString()}`}
                   rows={2}
                   className={[
@@ -316,6 +317,16 @@ export default function DriverShipments() {
   useEffect(() => {
     fetchShipments();
   }, [fetchShipments]);
+
+  useEffect(() => {
+    if (!shipments.length) return undefined;
+
+    shipments.forEach((shipment) => joinShipmentRoom(shipment._id));
+
+    return () => {
+      shipments.forEach((shipment) => leaveShipmentRoom(shipment._id));
+    };
+  }, [shipments]);
 
   // ── Optimistic status update ──────────────────────────────────────────────
   // Replace updated shipment in state without refetching the full list.

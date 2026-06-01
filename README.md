@@ -112,8 +112,8 @@ FreightFlow is a production-ready B2B logistics management platform built as a f
 
 | Layer | Technology |
 |---|---|
-| Framework | React 18 + Vite 5 |
-| Routing | React Router 6 |
+| Framework | React 18 + Vite 8 |
+| Routing | React Router |
 | Styling | Tailwind CSS 4 + CSS custom properties |
 | HTTP | Axios (pre-configured instance) |
 | Real-time | socket.io-client 4 |
@@ -228,8 +228,13 @@ cp .env.example .env
 | `NODE_ENV` | Runtime environment | `development` |
 | `MONGODB_URI` | Full MongoDB connection string | `mongodb+srv://user:pass@cluster.mongodb.net/FreightFlow` |
 | `JWT_SECRET` | Secret for signing JWTs | *(generate below)* |
-| `JWT_EXPIRES_IN` | Token expiry | `7d` |
+| `JWT_EXPIRES_IN` | Short-lived access token expiry | `15m` |
+| `ACCESS_TOKEN_COOKIE_MAX_AGE_MS` | Access cookie max age in milliseconds | `900000` |
 | `CLIENT_URL` | Frontend origin for CORS | `http://localhost:5173` |
+| `COOKIE_SAME_SITE` | Cookie SameSite policy | `strict` locally, `none` for cross-site HTTPS deployments |
+| `COOKIE_SECURE` | Require HTTPS cookies | `false` locally, `true` in production |
+| `COOKIE_DOMAIN` | Optional shared cookie domain | *(blank locally)* |
+| `TRUST_PROXY` | Proxy hop count for hosted deployments | `1` on many PaaS hosts |
 | `ADMIN_EMAIL` | Seed admin email — set your own, never commit | *(your-admin@example.com)* |
 | `ADMIN_PASSWORD` | Seed admin password — must be strong, never commit | *(choose a strong password)* |
 | `ADMIN_NAME` | Seed admin display name | `Super Admin` |
@@ -298,6 +303,7 @@ npm run dev
 | Register & Login | ✅ | ✅ | Seed only |
 | Create shipment | ✅ | ❌ | ❌ |
 | View own shipments | ✅ | ❌ | ❌ |
+| Cancel shipment | Own pending only | ❌ | Any non-cancelled shipment |
 | Initiate / confirm payment | ✅ | ❌ | ❌ |
 | View assigned deliveries | ❌ | ✅ | ❌ |
 | Update delivery status | ❌ | ✅ | ❌ |
@@ -321,7 +327,7 @@ pending  →  assigned  →  picked_up  →  in_transit  →  delivered
 | `picked_up` | Driver | Cargo collected from pickup location |
 | `in_transit` | Driver | Shipment en route to destination |
 | `delivered` | Driver | Shipment successfully delivered |
-| `cancelled` | Admin | Manually cancelled; recorded in status history |
+| `cancelled` | Shipper/Admin | Shipper can cancel own pending shipments; admin can cancel any non-cancelled shipment |
 
 > Status transitions are **forward-only** and **strictly enforced** on the backend.
 
@@ -347,8 +353,11 @@ GET /api/health
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
+| `GET` | `/auth/csrf` | No | Issue CSRF token for unsafe requests |
 | `POST` | `/auth/register` | No | Register a new user (shipper or driver) |
-| `POST` | `/auth/login` | No | Login and receive a JWT |
+| `POST` | `/auth/login` | No | Login and set httpOnly auth cookies |
+| `POST` | `/auth/refresh` | Cookie | Rotate refresh token and issue fresh cookies |
+| `POST` | `/auth/logout` | Cookie | Invalidate refresh token and clear auth cookies |
 | `GET` | `/auth/me` | Yes | Get current user profile |
 
 **Register body:**
@@ -368,6 +377,7 @@ GET /api/health
 | `POST` | `/shipments` | Shipper | Create a shipment |
 | `GET` | `/shipments/my` | Shipper | List own shipments |
 | `GET` | `/shipments/:id` | All | Get single shipment |
+| `PATCH` | `/shipments/:id/cancel` | Shipper | Cancel own pending shipment |
 
 ### Driver  `/api/driver`
 
@@ -388,7 +398,9 @@ GET /api/health
 | `GET` | `/admin/analytics` | Platform-wide stats and revenue |
 | `GET` | `/admin/shipments` | All shipments (`?status=`, `?search=`, `?page=`, `?limit=`) |
 | `PATCH` | `/admin/shipments/:id/assign` | Assign a driver |
+| `PATCH` | `/admin/shipments/:id/cancel` | Cancel any non-cancelled shipment |
 | `GET` | `/admin/users` | All users (`?role=shipper\|driver\|admin`) |
+| `PATCH` | `/admin/users/:id/status` | Activate or deactivate a user account |
 | `GET` | `/admin/drivers` | Active drivers (lightweight dropdown list) |
 
 ### Payments  `/api/payments`
@@ -406,6 +418,8 @@ GET /api/health
 ## ⚡ Real-Time Events (Socket.IO)
 
 Clients join a shipment-specific room to receive live updates.
+Room joins are authorized server-side. Only the shipment owner, assigned driver,
+or an admin can subscribe to a shipment room.
 
 ### Client → Server
 
@@ -426,13 +440,13 @@ Clients join a shipment-specific room to receive live updates.
 
 ## 🔐 Authentication
 
-1. Call `POST /api/auth/login` → receive a signed JWT
-2. Store the token (frontend uses `localStorage`)
-3. Attach to every request: `Authorization: Bearer <token>`
-4. The `protect` middleware verifies the token and attaches `req.user`
-5. `authorizeRoles(...roles)` checks `req.user.role` against allowed roles
-6. Admin accounts can only be created via `node src/scripts/seedAdmin.js`
-7. On 401 response, the Axios interceptor clears storage and redirects to `/login`
+1. The SPA calls `GET /api/auth/csrf` and sends `X-CSRF-Token` on unsafe requests.
+2. Login/register set short-lived `ff_access_token` and rotating `ff_refresh_token` httpOnly cookies.
+3. The frontend does not store JWTs in `localStorage`.
+4. `protect` reads the access cookie, verifies the JWT, confirms the user is active, and attaches `req.user`.
+5. `authorizeRoles(...roles)` checks `req.user.role` against allowed roles.
+6. On access-token expiry, Axios calls `POST /api/auth/refresh`; the refresh token is rotated and stored as a SHA-256 hash in MongoDB.
+7. Admin accounts can only be created via `node src/scripts/seedAdmin.js`.
 
 ---
 

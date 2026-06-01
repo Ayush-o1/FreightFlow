@@ -2,16 +2,17 @@
  * AdminUsers.jsx
  * Complete user management page — list all users with role filter and search.
  *
- * Endpoint: GET /api/admin/users (?role=...)
- * No delete / role-change endpoints exist on the backend (confirmed from adminRoutes.js).
- * Actions column shows "—" accordingly.
+ * Endpoints:
+ *   GET   /api/admin/users          — fetch all users (?role=...)
+ *   PATCH /api/admin/users/:id/status — activate or deactivate a user
  *
+ * Admins cannot delete users or change roles.
  * Clicking a row expands an inline detail panel showing all safe user fields.
  * Pagination: backend returns all users at once (no pagination params on getAllUsers).
  *   Shows "Showing all {count} users" text.
  */
 
-import { useState, useEffect, useMemo, Fragment } from 'react';
+import { useState, useEffect, useMemo, useCallback, Fragment } from 'react';
 import { Users, ChevronRight } from 'lucide-react';
 
 import DashboardLayout from '../../layouts/DashboardLayout';
@@ -20,9 +21,11 @@ import Card            from '../../components/ui/Card';
 import Badge           from '../../components/ui/Badge';
 import Button          from '../../components/ui/Button';
 import EmptyState      from '../../components/ui/EmptyState';
-import { getAllUsers }  from '../../api/adminApi';
+import { getAllUsers, updateUserStatus } from '../../api/adminApi';
 import { formatDate }   from '../../utils/formatters';
 import { getInitials }  from '../../utils/formatters';
+import { useNotification } from '../../hooks/useNotification';
+import { useAuth }          from '../../hooks/useAuth';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -85,12 +88,15 @@ function UserDetailRow({ user }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function AdminUsers() {
-  const [users,      setUsers]      = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState(null);
-  const [roleFilter, setRoleFilter] = useState('');
-  const [search,     setSearch]     = useState('');
-  const [expanded,   setExpanded]   = useState(null); // _id of expanded row
+  const { user: currentAdmin }  = useAuth();
+  const { showToast }           = useNotification();
+  const [users,        setUsers]        = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState(null);
+  const [roleFilter,   setRoleFilter]   = useState('');
+  const [search,       setSearch]       = useState('');
+  const [expanded,     setExpanded]     = useState(null); // _id of expanded row
+  const [actionLoading, setActionLoading] = useState({}); // { [userId]: bool }
 
   const fetchUsers = async () => {
     try {
@@ -121,6 +127,25 @@ export default function AdminUsers() {
   }, [users, roleFilter, search]);
 
   const toggleExpanded = (id) => setExpanded((prev) => (prev === id ? null : id));
+
+  // ── Status toggle ────────────────────────────────────────────────────────
+  const handleToggleStatus = useCallback(async (e, userId, currentIsActive) => {
+    e.stopPropagation(); // don't trigger row expansion
+    const newIsActive = !currentIsActive;
+    setActionLoading((prev) => ({ ...prev, [userId]: true }));
+    try {
+      const res = await updateUserStatus(userId, newIsActive);
+      const updated = res.data?.data?.user;
+      if (updated) {
+        setUsers((prev) => prev.map((u) => (u._id === userId ? { ...u, ...updated } : u)));
+      }
+      showToast('success', newIsActive ? 'User activated.' : 'User deactivated.');
+    } catch (err) {
+      showToast('error', err?.response?.data?.message ?? 'Failed to update user status.');
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [userId]: false }));
+    }
+  }, [showToast]);
 
   return (
     <DashboardLayout>
@@ -237,8 +262,22 @@ export default function AdminUsers() {
                           className="px-4 py-3 text-xs text-[var(--color-text-secondary)]"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          {/* No delete / role-change endpoints exist on backend */}
-                          <span title="No user management endpoints available">—</span>
+                          {/* Disable action for admin's own row */}
+                          {u._id === currentAdmin?._id ? (
+                            <span className="text-xs text-[var(--color-text-muted)]" title="Cannot change your own status">
+                              You
+                            </span>
+                          ) : (
+                            <Button
+                              id={`toggle-status-btn-${u._id}`}
+                              variant={u.isActive ? 'danger' : 'secondary'}
+                              size="sm"
+                              loading={!!actionLoading[u._id]}
+                              onClick={(e) => handleToggleStatus(e, u._id, u.isActive)}
+                            >
+                              {u.isActive ? 'Deactivate' : 'Activate'}
+                            </Button>
+                          )}
                         </td>
                       </tr>
                       {/* Expanded detail row */}

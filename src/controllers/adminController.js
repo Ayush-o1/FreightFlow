@@ -1,13 +1,14 @@
 'use strict';
 
 const mongoose = require('mongoose');
+const { validationResult } = require('express-validator');
 const Shipment  = require('../models/Shipment');
 const Payment   = require('../models/Payment');
 const User      = require('../models/User');
 const { successResponse, errorResponse } = require('../utils/responseFormatter');
 const { getIO } = require('../utils/getIO');
 const {
-  OK, BAD_REQUEST, NOT_FOUND, CONFLICT,
+  OK, BAD_REQUEST, NOT_FOUND, CONFLICT, FORBIDDEN, UNPROCESSABLE,
 } = require('../utils/httpStatus');
 const { notifyDriverAssigned } = require('../services/notificationService');
 
@@ -155,8 +156,13 @@ const getAllDrivers = async (req, res, next) => {
  */
 const assignDriver = async (req, res, next) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return errorResponse(res, UNPROCESSABLE, errors.array()[0].msg);
+    }
+
     const { id }       = req.params;
-    const { driverId } = req.body;
+    const { driverId, note } = req.body;
 
     if (!driverId) {
       return errorResponse(res, BAD_REQUEST, 'driverId is required in the request body.');
@@ -201,7 +207,7 @@ const assignDriver = async (req, res, next) => {
     shipment.statusHistory.push({
       status:    'assigned',
       updatedBy: req.user._id,
-      note:      'Driver assigned by admin',
+      note:      note?.trim() || 'Driver assigned by admin',
       timestamp: new Date(),
     });
 
@@ -230,6 +236,76 @@ const assignDriver = async (req, res, next) => {
     notifyDriverAssigned(shipment, shipment.shipper, driver);
 
     return successResponse(res, OK, 'Driver assigned successfully.', { shipment });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  CANCEL SHIPMENT (Admin)
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * PATCH /api/admin/shipments/:id/cancel
+ * Admin can cancel any non-cancelled shipment. Existing shipment records remain
+ * intact; only status and statusHistory are updated.
+ *
+ * Body: { note? }
+ * Access: Admin only
+ */
+const cancelShipmentAsAdmin = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return errorResponse(res, UNPROCESSABLE, errors.array()[0].msg);
+    }
+
+    const { id } = req.params;
+    const { note } = req.body;
+
+    const shipment = await Shipment.findById(id);
+
+    if (!shipment) {
+      return errorResponse(res, NOT_FOUND, 'Shipment not found.');
+    }
+
+    if (shipment.status === 'cancelled') {
+      return errorResponse(res, BAD_REQUEST, 'Shipment is already cancelled.');
+    }
+
+    const previousStatus = shipment.status;
+    const resolvedNote = note?.trim() || 'Shipment cancelled by admin.';
+
+    shipment.status = 'cancelled';
+    shipment.statusHistory.push({
+      status: 'cancelled',
+      updatedBy: req.user._id,
+      note: resolvedNote,
+      timestamp: new Date(),
+    });
+
+    await shipment.save();
+
+    const updatedShipment = await Shipment.findById(shipment._id)
+      .populate('shipper', 'name email')
+      .populate('driver', 'name email')
+      .populate('statusHistory.updatedBy', 'name role');
+
+    const io = getIO();
+    if (io) {
+      io.to(`shipment_${id}`).emit('statusUpdated', {
+        shipmentId: id,
+        previousStatus,
+        newStatus: 'cancelled',
+        updatedBy: req.user.name,
+        role: req.user.role,
+        note: resolvedNote,
+        timestamp: new Date(),
+      });
+    }
+
+    return successResponse(res, OK, 'Shipment cancelled successfully.', {
+      shipment: updatedShipment,
+    });
   } catch (error) {
     next(error);
   }
@@ -337,11 +413,92 @@ const getAnalytics = async (req, res, next) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────────
+//  UPDATE USER STATUS (Admin)
+// ─────────────────────────────────────────────────────────────────────────────────
+/**
+ * PATCH /api/admin/users/:id/status
+ * Activate or deactivate a user account.
+ *
+ * Business rules:
+ *   - Admin cannot deactivate their own account
+ *   - Deactivating a user also nulls their refreshToken (forces session invalidation)
+ *   - Reactivating a user does not issue a new session — they must log in again
+ *
+ * Body: { isActive: boolean }
+ * Access: Admin only
+ */
+const updateUserStatus = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return errorResponse(res, UNPROCESSABLE, errors.array()[0].msg);
+    }
+
+    const { id }      = req.params;
+    const { isActive } = req.body;
+
+    // Guard: admin cannot deactivate themselves
+    if (id === req.user._id.toString()) {
+      return errorResponse(
+        res,
+        FORBIDDEN,
+        'You cannot change the status of your own account.'
+      );
+    }
+
+    const user = await User.findById(id);
+
+    if (!user) {
+      return errorResponse(res, NOT_FOUND, 'User not found.');
+    }
+
+    // No-op guard: status is already the desired value
+    if (user.isActive === isActive) {
+      const stateLabel = isActive ? 'active' : 'inactive';
+      return errorResponse(
+        res,
+        BAD_REQUEST,
+        `User account is already ${stateLabel}.`
+      );
+    }
+
+    user.isActive = isActive;
+
+    // Deactivating: invalidate the user's refresh token to force session termination.
+    // Their access token will expire naturally (up to JWT_EXPIRES_IN).
+    // On the next request after expiry, the refresh call will return 403 and log them out.
+    if (!isActive) {
+      user.refreshToken = null;
+    }
+
+    await user.save({ validateBeforeSave: false });
+
+    // Return a safe user object (password + refreshToken excluded by select:false)
+    const safeUser = {
+      _id:       user._id,
+      name:      user.name,
+      email:     user.email,
+      role:      user.role,
+      isActive:  user.isActive,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+
+    const action = isActive ? 'activated' : 'deactivated';
+    return successResponse(res, OK, `User account ${action} successfully.`, { user: safeUser });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllShipments,
   getAllUsers,
   getAllDrivers,
   assignDriver,
+  cancelShipmentAsAdmin,
   getShipmentById,
   getAnalytics,
+  updateUserStatus,
 };

@@ -68,6 +68,20 @@ export const getAdminShipmentById = (id) =>
 export const assignDriver = (shipmentId, driverId) =>
   axiosInstance.patch(`/api/admin/shipments/${shipmentId}/assign`, { driverId });
 
+/**
+ * Cancel any non-cancelled shipment as admin.
+ * PATCH /api/admin/shipments/:id/cancel
+ *
+ * @param {string} shipmentId — MongoDB ObjectId of the shipment
+ * @param {string} [note]    — optional cancellation note
+ * @returns {Promise} response.data.data.shipment — updated shipment
+ */
+export const cancelShipmentAsAdmin = (shipmentId, note) =>
+  axiosInstance.patch(
+    `/api/admin/shipments/${shipmentId}/cancel`,
+    note ? { note } : {}
+  );
+
 // ── USERS ─────────────────────────────────────────────────────────────────────
 /**
  * Fetch all users. Supports role filter.
@@ -90,8 +104,27 @@ export const getAllUsers = (params = {}) =>
 export const getAllDrivers = () =>
   axiosInstance.get('/api/admin/drivers');
 
+// ── USER STATUS MANAGEMENT ────────────────────────────────────────────────────
+/**
+ * Activate or deactivate a user account.
+ * PATCH /api/admin/users/:id/status
+ *
+ * Body: { isActive: boolean }
+ *   isActive: true  → activate the account
+ *   isActive: false → deactivate the account (also invalidates their session)
+ *
+ * Rules enforced server-side:
+ *   - Admin cannot deactivate their own account (returns 403)
+ *   - No-op if the account is already in the requested state (returns 400)
+ *
+ * @param {string}  userId   — MongoDB ObjectId of the target user
+ * @param {boolean} isActive — true to activate, false to deactivate
+ * @returns {Promise} response.data.data.user — updated user object
+ */
+export const updateUserStatus = (userId, isActive) =>
+  axiosInstance.patch(`/api/admin/users/${userId}/status`, { isActive });
+
 // ── SKIPPED ENDPOINTS (not in backend) ───────────────────────────────────────
 // ✗ getUserById(id)      — GET /api/admin/users/:id does not exist
 // ✗ deleteUser(id)       — DELETE /api/admin/users/:id does not exist
 // ✗ updateUserRole(id)   — PATCH /api/admin/users/:id does not exist
-// Actions column in AdminUsers.jsx will show "—" accordingly.

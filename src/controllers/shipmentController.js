@@ -5,6 +5,7 @@ const Shipment = require('../models/Shipment');
 const { successResponse, errorResponse } = require('../utils/responseFormatter');
 const { OK, CREATED, BAD_REQUEST, FORBIDDEN, NOT_FOUND, UNPROCESSABLE } = require('../utils/httpStatus');
 const { notifyShipmentCreated } = require('../services/notificationService');
+const { getIO } = require('../utils/getIO');
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  CREATE SHIPMENT
@@ -138,4 +139,95 @@ const getShipmentById = async (req, res, next) => {
   }
 };
 
-module.exports = { createShipment, getMyShipments, getShipmentById };
+// ─────────────────────────────────────────────────────────────────────────────────
+//  CANCEL SHIPMENT
+// ─────────────────────────────────────────────────────────────────────────────────
+/**
+ * PATCH /api/shipments/:id/cancel
+ * Allows a shipper to cancel their own shipment.
+ *
+ * Business rules:
+ *   - Only the owning shipper can cancel (ownership checked by comparing shipper field)
+ *   - Only 'pending' shipments can be cancelled (once a driver is assigned, dispatch has begun)
+ *   - Appends a statusHistory entry and emits a socket 'statusUpdated' event
+ *
+ * Request body (optional): { note }
+ * Access: Shipper only (own shipments)
+ */
+const cancelShipment = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return errorResponse(res, UNPROCESSABLE, errors.array()[0].msg);
+    }
+
+    const { id }  = req.params;
+    const { note } = req.body;
+
+    const shipment = await Shipment.findById(id);
+
+    if (!shipment) {
+      return errorResponse(res, NOT_FOUND, 'Shipment not found.');
+    }
+
+    // Ownership check — only the shipper who created it can cancel
+    if (shipment.shipper.toString() !== req.user._id.toString()) {
+      return errorResponse(
+        res,
+        FORBIDDEN,
+        'Access denied. You can only cancel your own shipments.'
+      );
+    }
+
+    // State guard — only pending shipments can be cancelled
+    if (shipment.status !== 'pending') {
+      return errorResponse(
+        res,
+        BAD_REQUEST,
+        `Only 'pending' shipments can be cancelled. Current status is '${shipment.status}'.`
+      );
+    }
+
+    const resolvedNote = note?.trim() || 'Shipment cancelled by shipper.';
+
+    const previousStatus = shipment.status;
+
+    shipment.status = 'cancelled';
+    shipment.statusHistory.push({
+      status:    'cancelled',
+      updatedBy: req.user._id,
+      note:      resolvedNote,
+      timestamp: new Date(),
+    });
+
+    await shipment.save();
+
+    // Re-fetch fully populated for the response
+    const updatedShipment = await Shipment.findById(shipment._id)
+      .populate('shipper', 'name email')
+      .populate('driver',  'name email')
+      .populate('statusHistory.updatedBy', 'name role');
+
+    // Emit real-time update to anyone watching this shipment room
+    const io = getIO();
+    if (io) {
+      io.to(`shipment_${id}`).emit('statusUpdated', {
+        shipmentId: id,
+        previousStatus,
+        newStatus:  'cancelled',
+        updatedBy:  req.user.name,
+        role:       req.user.role,
+        note:       resolvedNote,
+        timestamp:  new Date(),
+      });
+    }
+
+    return successResponse(res, OK, 'Shipment cancelled successfully.', {
+      shipment: updatedShipment,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = { createShipment, getMyShipments, getShipmentById, cancelShipment };

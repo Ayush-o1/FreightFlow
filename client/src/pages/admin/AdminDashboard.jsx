@@ -16,7 +16,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Users, Building2, Truck, Package, CheckCircle2, Clock,
-  ArrowRight, ChevronRight,
+  ArrowRight,
 } from 'lucide-react';
 
 import DashboardLayout from '../../layouts/DashboardLayout';
@@ -88,19 +88,6 @@ function StatusBreakdown({ shipmentsByStatus, totalShipments }) {
         );
       })}
     </div>
-  );
-}
-
-// ── Skeleton rows ─────────────────────────────────────────────────────────────
-function SkeletonRow({ cols = 5 }) {
-  return (
-    <tr>
-      {Array.from({ length: cols }).map((_, i) => (
-        <td key={i} className="px-4 py-3">
-          <div className="h-3 animate-pulse rounded bg-[var(--color-border)]" />
-        </td>
-      ))}
-    </tr>
   );
 }
 

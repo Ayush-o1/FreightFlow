@@ -104,8 +104,8 @@ const shipmentSchema = new mongoose.Schema(
     paymentStatus: {
       type: String,
       enum: {
-        values: ['unpaid', 'paid', 'failed'],
-        message: "Payment status must be one of: unpaid, paid, failed",
+        values: ['unpaid', 'pending', 'paid', 'failed'],
+        message: "Payment status must be one of: unpaid, pending, paid, failed",
       },
       default: 'unpaid',
     },
@@ -142,8 +142,8 @@ shipmentSchema.index({ status: 1 });
 // ─── Pre-save Hook: Auto-generate trackingNumber ───────────────────────────────
 // Runs only on the first save (isNew check) so existing documents are never touched.
 // Format: FF-YYYYMMDD-XXXXXXXX (date + 8 random hex chars = 16^8 = 4.3B combinations)
-shipmentSchema.pre('save', function generateTrackingNumber(next) {
-  if (!this.isNew || this.trackingNumber) return next();
+shipmentSchema.pre('save', function generateTrackingNumber() {
+  if (!this.isNew || this.trackingNumber) return;
 
   const today  = new Date();
   const yyyymmdd = [
@@ -155,7 +155,6 @@ shipmentSchema.pre('save', function generateTrackingNumber(next) {
   // 8 random hex chars — low collision probability, not cryptographically sensitive
   const suffix = crypto.randomBytes(4).toString('hex').toUpperCase();
   this.trackingNumber = `FF-${yyyymmdd}-${suffix}`;
-  next();
 });
 
 // ─── Transform: Remove __v ────────────────────────────────────────────────────

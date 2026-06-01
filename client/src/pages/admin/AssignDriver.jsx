@@ -18,7 +18,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
-import { MapPin, Navigation, Package, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { MapPin, Navigation, CheckCircle2 } from 'lucide-react';
 
 import DashboardLayout from '../../layouts/DashboardLayout';
 import PageHeader      from '../../components/shared/PageHeader';
@@ -332,7 +332,7 @@ export default function AssignDriver() {
             </p>
           ) : filteredDrivers.length === 0 ? (
             <p className="py-4 text-center text-sm text-[var(--color-text-secondary)]">
-              No drivers match "{driverSearch}".
+              No drivers match &quot;{driverSearch}&quot;.
             </p>
           ) : (
             <div className="mb-4 max-h-72 overflow-y-auto space-y-2 pr-1">

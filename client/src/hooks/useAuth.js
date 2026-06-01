@@ -1,6 +1,6 @@
 /**
  * useAuth.js
- * Convenience re-export of the useAuth hook from AuthContext.
+ * Convenience hook for reading AuthContext.
  * Import this hook in page/component files for cleaner import paths.
  *
  * Usage:
@@ -8,4 +8,13 @@
  *   const { user, logout } = useAuth();
  */
 
-export { useAuth } from '../context/AuthContext';
+import { useContext } from 'react';
+import AuthContext from '../context/authContextValue';
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used inside an <AuthProvider>');
+  }
+  return context;
+}

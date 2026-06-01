@@ -30,10 +30,69 @@
  *    Emitted in addition to statusUpdated when newStatus
  *    is 'delivered'. Sent only to room: `shipment_${shipmentId}`.
  * ══════════════════════════════════════════════════════════════
+ *
+ *  AUTHENTICATION
+ *  ──────────────
+ *  Every WebSocket upgrade is authenticated via the ff_access_token
+ *  httpOnly cookie. Connections without a valid token are rejected
+ *  before the 'connection' event fires.
+ *  Socket.data.user is set to the active user's id, role, and name on success.
+ * ══════════════════════════════════════════════════════════════
  */
 
 const { Server } = require('socket.io');
+const jwt        = require('jsonwebtoken');
+const mongoose   = require('mongoose');
+const User       = require('../models/User');
+const Shipment   = require('../models/Shipment');
 const { setIO }  = require('../utils/getIO');
+const { COOKIE_NAMES, buildAllowedOrigins } = require('../config/security');
+
+// ── Dev-only logger ───────────────────────────────────────────────────────────
+const isDev = process.env.NODE_ENV !== 'production';
+const devLog = (...args) => { if (isDev) console.log(...args); };
+
+// ── Cookie parser helper ──────────────────────────────────────────────────────
+/**
+ * Parses a raw Cookie header string into a key→value map.
+ * Used because socket.handshake doesn't go through cookie-parser middleware.
+ * @param {string} cookieHeader — e.g. "ff_access_token=abc; other=xyz"
+ * @returns {Record<string, string>}
+ */
+const parseCookies = (cookieHeader = '') => {
+  const cookies = {};
+  cookieHeader.split(';').forEach((pair) => {
+    const idx = pair.indexOf('=');
+    if (idx < 0) return;
+    const key   = pair.slice(0, idx).trim();
+    const value = pair.slice(idx + 1).trim();
+    // Decode URI-encoded values (browsers encode cookie values)
+    try { cookies[key] = decodeURIComponent(value); }
+    catch { cookies[key] = value; }
+  });
+  return cookies;
+};
+
+const canJoinShipmentRoom = (user, shipment) => {
+  if (!user || !shipment) return false;
+  if (user.role === 'admin') return true;
+
+  if (user.role === 'shipper') {
+    return shipment.shipper?.toString() === user.id;
+  }
+
+  if (user.role === 'driver') {
+    return shipment.driver?.toString() === user.id;
+  }
+
+  return false;
+};
+
+const emitRoomError = (socket, ack, shipmentId, message) => {
+  const payload = { success: false, shipmentId, message };
+  if (typeof ack === 'function') ack(payload);
+  socket.emit('shipmentRoomError', payload);
+};
 
 /**
  * Initializes Socket.io and attaches it to the HTTP server.
@@ -42,12 +101,15 @@ const { setIO }  = require('../utils/getIO');
  * @param {import('http').Server} httpServer - The Node.js HTTP server instance
  */
 const initSocket = (httpServer) => {
+  const allowedOrigins = buildAllowedOrigins();
+
   const io = new Server(httpServer, {
     cors: {
-      // Guard against undefined CLIENT_URL — undefined blocks all cross-origin connections.
-      // In dev, fall back to localhost:5173 (Vite default port).
-      origin: process.env.CLIENT_URL
-        || (process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : false),
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        callback(new Error(`Socket CORS: origin ${origin} not allowed`));
+      },
       credentials: true,   // Required: browser must send the httpOnly cookie on WS upgrade
       methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     },
@@ -56,16 +118,83 @@ const initSocket = (httpServer) => {
   // ── Store io in singleton so controllers can emit without circular imports ──
   setIO(io);
 
+  // ── Socket Authentication Middleware ─────────────────────────────────────────
+  // Runs BEFORE the 'connection' event. Unauthenticated clients are rejected here.
+  //
+  // Strategy:
+  //   1. Parse the Cookie header from the WS upgrade handshake
+  //   2. Extract ff_access_token (set by login/register/refresh endpoints)
+  //   3. Verify the JWT — reject with an error if invalid or missing
+  //   4. Attach the decoded userId to socket.data for downstream handlers
+  //
+  // Note: cookie-parser does NOT run on socket handshakes. We parse manually.
+  io.use(async (socket, next) => {
+    try {
+      const rawCookies = socket.handshake.headers?.cookie || '';
+      const cookies    = parseCookies(rawCookies);
+      const token      = cookies[COOKIE_NAMES.access];
+
+      if (!token) {
+        return next(new Error('Authentication error: No access token provided.'));
+      }
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const currentUser = await User.findById(decoded.id).select('_id name role isActive');
+
+      if (!currentUser || !currentUser.isActive) {
+        return next(new Error('Authentication error: User is inactive or no longer exists.'));
+      }
+
+      socket.data.user = {
+        id: currentUser._id.toString(),
+        name: currentUser.name,
+        role: currentUser.role,
+      };
+      devLog(`🔒  Socket auth OK   → userId: ${socket.data.user.id}`);
+
+      next();
+    } catch (err) {
+      // Covers: JsonWebTokenError, TokenExpiredError, malformed cookies
+      next(new Error(`Authentication error: ${err.message}`));
+    }
+  });
+
   // ── Connection lifecycle ───────────────────────────────────────────────────
   io.on('connection', (socket) => {
-    console.log(`🔌  Socket connected    → id: ${socket.id}`);
+    devLog(`🔌  Socket connected    → id: ${socket.id} | userId: ${socket.data.user.id}`);
 
     // ── Client → Server: join a shipment room ────────────────────────────────
-    socket.on('joinShipmentRoom', ({ shipmentId } = {}) => {
-      if (!shipmentId) return;
-      const room = `shipment_${shipmentId}`;
-      socket.join(room);
-      console.log(`📦  Socket ${socket.id} joined  room: ${room}`);
+    socket.on('joinShipmentRoom', async ({ shipmentId } = {}, ack) => {
+      try {
+        if (!shipmentId || !mongoose.Types.ObjectId.isValid(shipmentId)) {
+          return emitRoomError(socket, ack, shipmentId, 'Invalid shipment room.');
+        }
+
+        const shipment = await Shipment.findById(shipmentId)
+          .select('shipper driver')
+          .lean();
+
+        if (!shipment) {
+          return emitRoomError(socket, ack, shipmentId, 'Shipment not found.');
+        }
+
+        if (!canJoinShipmentRoom(socket.data.user, shipment)) {
+          return emitRoomError(
+            socket,
+            ack,
+            shipmentId,
+            'Access denied. You cannot subscribe to this shipment.'
+          );
+        }
+
+        const room = `shipment_${shipmentId}`;
+        socket.join(room);
+        if (typeof ack === 'function') ack({ success: true, shipmentId });
+        devLog(`📦  Socket ${socket.id} joined  room: ${room}`);
+      } catch (error) {
+        emitRoomError(socket, ack, shipmentId, 'Unable to join shipment room.');
+        devLog(`⚠️   Socket room join failed → ${error.message}`);
+      }
     });
 
     // ── Client → Server: leave a shipment room ───────────────────────────────
@@ -73,12 +202,12 @@ const initSocket = (httpServer) => {
       if (!shipmentId) return;
       const room = `shipment_${shipmentId}`;
       socket.leave(room);
-      console.log(`📦  Socket ${socket.id} left    room: ${room}`);
+      devLog(`📦  Socket ${socket.id} left    room: ${room}`);
     });
 
     // ── Disconnect ───────────────────────────────────────────────────────────
     socket.on('disconnect', (reason) => {
-      console.log(`🔌  Socket disconnected → id: ${socket.id} (reason: ${reason})`);
+      devLog(`🔌  Socket disconnected → id: ${socket.id} (reason: ${reason})`);
     });
   });
 

@@ -9,7 +9,7 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Truck, Package, CheckCircle, Clock, MapPin, Navigation, ChevronRight } from 'lucide-react';
+import { Truck, CheckCircle, Clock, MapPin, Navigation, ChevronRight } from 'lucide-react';
 
 import DashboardLayout from '../../layouts/DashboardLayout';
 import PageHeader       from '../../components/shared/PageHeader';

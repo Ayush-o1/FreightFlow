@@ -72,12 +72,19 @@ export const computeDashboardStats = (shipments = []) => ({
 
 // ── CANCEL SHIPMENT ───────────────────────────────────────────────────────────
 /**
- * ⚠️  NO CANCEL ENDPOINT EXISTS on the backend.
- * shipmentRoutes.js exposes only: POST /, GET /my, GET /:id.
- * There is no PATCH/DELETE cancel route. This function is intentionally
- * omitted. The Cancel section in ShipmentDetail.jsx is hidden accordingly.
+ * Cancel a pending shipment.
+ * PATCH /api/shipments/:id/cancel
+ *
+ * Business rules (enforced server-side):
+ *   - Only the owning shipper can cancel
+ *   - Only 'pending' shipments can be cancelled
+ *
+ * @param {string} id    — MongoDB ObjectId of the shipment
+ * @param {string} [note] — optional cancellation note (max 500 chars)
+ * @returns {Promise} response.data.data.shipment — updated shipment
  */
-// export const cancelShipment = (id) => axiosInstance.patch(`/api/shipments/${id}/cancel`);
+export const cancelShipment = (id, note) =>
+  axiosInstance.patch(`/api/shipments/${id}/cancel`, note ? { note } : {});
 
 // ── UPDATE SHIPMENT STATUS (driver) ──────────────────────────────────────────
 /**
