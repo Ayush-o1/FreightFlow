@@ -13,6 +13,7 @@ const {
 } = require('../config/security');
 const { issueCsrfToken } = require('../middlewares/csrfProtection');
 const { recordAuditEvent } = require('../services/auditLogService');
+const { recordAuthFailure } = require('../services/metricsService');
 const {
   OK, CREATED, BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT, UNPROCESSABLE,
 } = require('../utils/httpStatus');
@@ -149,10 +150,12 @@ const login = async (req, res, next) => {
     const user = await User.findOne({ email }).select('+password +refreshToken');
 
     if (!user || !(await user.comparePassword(password))) {
+      recordAuthFailure('invalid_credentials', 'http');
       return errorResponse(res, UNAUTHORIZED, 'Invalid email or password.');
     }
 
     if (!user.isActive) {
+      recordAuthFailure('inactive_user', 'http');
       return errorResponse(
         res,
         FORBIDDEN,
@@ -228,6 +231,7 @@ const refresh = async (req, res, next) => {
     const rawToken = req.cookies?.ff_refresh_token;
 
     if (!rawToken) {
+      recordAuthFailure('missing_refresh_token', 'http');
       recordAuditEvent(req, {
         action: 'auth.refresh_failed',
         status: 'failure',
@@ -242,6 +246,7 @@ const refresh = async (req, res, next) => {
     const user = await User.findOne({ refreshToken: hash }).select('+refreshToken');
 
     if (!user) {
+      recordAuthFailure('invalid_refresh_token', 'http');
       // Token not found — either already rotated (reuse attempt) or never issued
       recordAuditEvent(req, {
         action: 'auth.refresh_failed',
@@ -252,6 +257,7 @@ const refresh = async (req, res, next) => {
     }
 
     if (!user.isActive) {
+      recordAuthFailure('inactive_user', 'http');
       recordAuditEvent(req, {
         action: 'auth.refresh_failed',
         status: 'failure',

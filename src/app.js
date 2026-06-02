@@ -10,9 +10,11 @@ const { notFound, errorHandler } = require('./middlewares/errorHandler');
 const { buildAllowedOrigins, configureTrustProxy } = require('./config/security');
 const logger = require('./config/logger');
 const healthRoutes = require('./routes/healthRoutes');
+const metricsRoutes = require('./routes/metricsRoutes');
 const { requestId } = require('./middlewares/requestId');
 const { csrfProtection } = require('./middlewares/csrfProtection');
 const { generalLimiter } = require('./middlewares/rateLimiters');
+const { requestMetricsMiddleware } = require('./services/metricsService');
 
 const app = express();
 
@@ -31,6 +33,7 @@ app.use(
     quietReqLogger: true,
   })
 );
+app.use(requestMetricsMiddleware);
 
 // ─── Cookie Parser (MUST be before routes so req.cookies is populated) ───────
 app.use(cookieParser());
@@ -73,6 +76,7 @@ app.use(csrfProtection);
 
 // ─── Health / Readiness Routes ────────────────────────────────────────────────
 app.use('/api', healthRoutes);
+app.use('/api', metricsRoutes);
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 const authRoutes     = require('./routes/authRoutes');

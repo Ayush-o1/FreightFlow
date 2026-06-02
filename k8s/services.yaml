@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: freightflow
+  labels:
+    app.kubernetes.io/name: freightflow-backend
+spec:
+  selector:
+    app.kubernetes.io/name: freightflow-backend
+  ports:
+    - name: http
+      port: 5001
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: freightflow
+  labels:
+    app.kubernetes.io/name: freightflow-frontend
+spec:
+  selector:
+    app.kubernetes.io/name: freightflow-frontend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+  namespace: freightflow
+  labels:
+    app.kubernetes.io/name: mongodb
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: mongodb
+  ports:
+    - name: mongo
+      port: 27017
+      targetPort: mongo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: freightflow
+  labels:
+    app.kubernetes.io/name: redis
+spec:
+  selector:
+    app.kubernetes.io/name: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis

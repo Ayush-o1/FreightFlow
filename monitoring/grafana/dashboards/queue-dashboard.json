@@ -1,0 +1,31 @@
+{
+  "uid": "freightflow-queues",
+  "title": "FreightFlow Queues",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "timezone": "browser",
+  "tags": ["freightflow", "bullmq"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Queue Backlog",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(freightflow_queue_backlog{state=~\"waiting|delayed|prioritized\"}) by (queue, state)", "legendFormat": "{{queue}} {{state}}" }
+      ],
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Job Lifecycle Rate",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(freightflow_queue_jobs_total[5m])) by (queue, status)", "legendFormat": "{{queue}} {{status}}" }
+      ],
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 9 }
+    }
+  ]
+}

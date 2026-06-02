@@ -5,6 +5,10 @@ const dotenv = require('dotenv');
 // Load environment variables before anything else
 dotenv.config();
 
+const { initTracing } = require('./src/config/tracing');
+
+initTracing();
+
 const http = require('http');
 const { validateEnv } = require('./src/config/env');
 const logger = require('./src/config/logger');

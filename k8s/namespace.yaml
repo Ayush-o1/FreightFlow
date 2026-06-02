@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: freightflow
+  labels:
+    app.kubernetes.io/name: freightflow
+    app.kubernetes.io/part-of: freightflow

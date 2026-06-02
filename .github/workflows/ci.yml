@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   backend:
@@ -42,6 +43,12 @@ jobs:
 
       - name: Syntax checks
         run: npm run check
+
+      - name: Security headers smoke check
+        run: |
+          node -e "process.env.NODE_ENV='test'; process.env.JWT_SECRET='test-jwt-secret-with-at-least-thirty-two-characters'; process.env.JWT_REFRESH_SECRET='test-refresh-secret-with-at-least-thirty-two-characters'; process.env.CLIENT_URL='http://localhost:5173'; process.env.REDIS_URL='redis://127.0.0.1:6379'; const app=require('./src/app'); const server=app.listen(5050, () => console.log('header smoke server ready')); setTimeout(() => server.close(() => process.exit(0)), 60000);" &
+          sleep 2
+          TARGET_URL=http://127.0.0.1:5050/api/live npm run security:headers
 
       - name: Backend tests
         run: npm test
@@ -88,3 +95,64 @@ jobs:
 
       - name: Frontend production audit
         run: npm audit --omit=dev
+
+  platform:
+    name: Platform validation
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker build backend
+        run: docker build -t freightflow/backend:ci .
+
+      - name: Docker build frontend
+        run: docker build -t freightflow/frontend:ci ./client
+
+      - name: Container scan backend
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image --scanners vuln --exit-code 1 --severity HIGH,CRITICAL freightflow/backend:ci
+
+      - name: Container scan frontend
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image --scanners vuln --exit-code 1 --severity HIGH,CRITICAL freightflow/frontend:ci
+
+      - name: Secret scan
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect \
+            --source /repo --no-git --redact --verbose
+
+      - name: Kubernetes client validation
+        run: |
+          mkdir -p .tmp
+          kubectl kustomize k8s > .tmp/freightflow-k8s.yaml
+
+      - name: Kubernetes schema validation
+        run: |
+          docker run --rm -v "$PWD:/work" ghcr.io/yannh/kubeconform:latest \
+            -strict -summary -ignore-missing-schemas /work/.tmp/freightflow-k8s.yaml
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        run: terraform -chdir=infra/terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform -chdir=infra/terraform validate
+
+  deploy:
+    name: Manual deployment gate
+    runs-on: ubuntu-latest
+    needs: [backend, frontend, platform]
+    if: github.event_name == 'workflow_dispatch'
+    environment: production
+
+    steps:
+      - name: Deployment gate
+        run: |
+          echo "Manual approval reached. Add cloud-specific deployment commands here once registry, cluster, and Terraform backend are configured."

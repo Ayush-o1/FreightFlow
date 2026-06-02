@@ -9,12 +9,21 @@
     "dev": "nodemon server.js",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --runInBand --coverage"
+    "test:coverage": "jest --runInBand --coverage",
+    "validate:k8s": "kubectl kustomize k8s >/tmp/freightflow-k8s.yaml",
+    "validate:terraform": "terraform -chdir=infra/terraform init -backend=false && terraform -chdir=infra/terraform validate",
+    "security:headers": "scripts/security/verify-security-headers.sh"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.76.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.218.0",
+    "@opentelemetry/resources": "^2.7.1",
+    "@opentelemetry/sdk-node": "^0.218.0",
+    "@opentelemetry/semantic-conventions": "^1.41.1",
     "@socket.io/redis-adapter": "^8.3.0",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.77.7",
@@ -30,6 +39,7 @@
     "mongoose": "^9.6.1",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
+    "prom-client": "^15.1.3",
     "redis": "^6.0.0",
     "socket.io": "^4.8.3",
     "zod": "^4.4.3"

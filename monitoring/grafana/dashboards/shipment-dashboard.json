@@ -1,0 +1,41 @@
+{
+  "uid": "freightflow-shipments",
+  "title": "FreightFlow Shipments",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "timezone": "browser",
+  "tags": ["freightflow", "shipments"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Shipment API Traffic",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(freightflow_http_requests_total{route=~\"/api/(shipments|driver|admin).*\"}[5m])) by (route, method)", "legendFormat": "{{method}} {{route}}" }
+      ],
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Socket Shipment Events",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(freightflow_socket_events_total{event=~\"joinShipmentRoom|leaveShipmentRoom|statusUpdated|shipmentDelivered|driverAssigned\"}[5m])) by (event, status)", "legendFormat": "{{event}} {{status}}" }
+      ],
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 9 }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Analytics Cache",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(freightflow_cache_operations_total[5m])) by (result)", "legendFormat": "{{result}}" }
+      ],
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 18 }
+    }
+  ]
+}

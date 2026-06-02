@@ -185,7 +185,8 @@ and notification jobs, and report stuck payments and stale shipments.
 
 ## Observability
 
-FreightFlow now uses structured backend logging with `pino` and `pino-http`.
+FreightFlow uses structured backend logging with `pino` and `pino-http`,
+Prometheus metrics through `/api/metrics`, and OpenTelemetry tracing.
 
 Request flow:
 
@@ -202,6 +203,18 @@ Sensitive values are redacted from logs:
 - Passwords
 - JWT/access token fields
 - Refresh token/hash fields
+
+Prometheus metrics track API throughput, error rate, latency, auth failures,
+dependency readiness, queue lifecycle and backlog, cache hit/miss rate, and
+Socket.IO lifecycle events. Grafana dashboard exports live in
+`monitoring/grafana/dashboards`.
+
+OpenTelemetry is initialized before Express, Mongoose, Redis, BullMQ, and
+Socket.IO imports in `server.js`. Auto-instrumentation covers HTTP, Express,
+MongoDB/Mongoose, Redis, and common Node modules. Manual spans wrap BullMQ job
+enqueue/processing and Socket.IO auth/room/event paths. `X-Request-ID` is added
+as a span attribute and is also carried in outbox metadata where events are
+processed asynchronously.
 
 ## Audit Logging
 
@@ -260,8 +273,14 @@ CSRF/refresh interceptors.
 GitHub Actions validates every push and pull request to `main`.
 
 Backend CI runs a Redis service container, dependency installation, syntax checks,
-Jest tests, coverage, and production dependency audit. Frontend CI runs dependency installation, lint,
-Vite build, Vitest tests, coverage, and production dependency audit.
+security-header smoke checks, Jest tests, coverage, and production dependency
+audit. Frontend CI runs dependency installation, lint, Vite build, Vitest tests,
+coverage, and production dependency audit.
+
+Platform CI builds backend/frontend Docker images, scans container images,
+scans for secrets, validates Kubernetes manifests, and validates Terraform.
+Manual deployment is gated behind `workflow_dispatch` and the `production`
+environment.
 
 CodeQL scans JavaScript security issues, and Dependabot monitors backend,
 frontend, and GitHub Actions dependencies.

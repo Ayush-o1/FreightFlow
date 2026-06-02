@@ -4,6 +4,8 @@ const OutboxEvent = require('../models/OutboxEvent');
 const { getNotificationQueue } = require('../queues');
 const { getIO } = require('../utils/getIO');
 const logger = require('../config/logger');
+const { recordSocketEvent } = require('../services/metricsService');
+const { runWithSpan } = require('../config/tracing');
 
 const emitSocketEvents = (event) => {
   const io = getIO();
@@ -15,7 +17,23 @@ const emitSocketEvents = (event) => {
   if (!room) return;
 
   (payload.socketEvents || []).forEach(({ name, data }) => {
-    io.to(room).emit(name, data);
+    runWithSpan(
+      'socket.emit',
+      {
+        'network.protocol.name': 'socket.io',
+        'freightflow.socket.event': name,
+        'freightflow.socket.room': room,
+        'freightflow.outbox_event_id': event._id.toString(),
+        'freightflow.request_id': event.metadata?.requestId || 'unknown',
+      },
+      async () => {
+        io.to(room).emit(name, data);
+        recordSocketEvent(name, 'server', 'emitted');
+      }
+    ).catch((error) => {
+      recordSocketEvent(name, 'server', 'error');
+      logger.warn({ err: error, room, name }, 'Socket emit trace failed');
+    });
     logger.debug({ outboxEventId: event._id, room, name }, 'Outbox socket event emitted');
   });
 };

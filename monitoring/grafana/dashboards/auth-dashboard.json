@@ -1,0 +1,31 @@
+{
+  "uid": "freightflow-auth",
+  "title": "FreightFlow Auth",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "timezone": "browser",
+  "tags": ["freightflow", "auth"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Auth Failures",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(freightflow_auth_failures_total[5m])) by (reason, source)", "legendFormat": "{{source}} {{reason}}" }
+      ],
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Auth Endpoint Latency",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(freightflow_http_request_duration_seconds_bucket{route=~\"/api/auth.*\"}[5m])) by (le, route))", "legendFormat": "{{route}}" }
+      ],
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 9 }
+    }
+  ]
+}

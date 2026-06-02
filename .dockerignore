@@ -1,0 +1,16 @@
+node_modules
+client/node_modules
+client/dist
+coverage
+client/coverage
+.git
+.github
+.env
+.env.*
+!.env.example
+npm-debug.log*
+*.log
+.DS_Store
+docs/screenshots
+load-tests/results
+tmp

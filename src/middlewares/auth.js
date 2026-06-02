@@ -3,6 +3,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { errorResponse } = require('../utils/responseFormatter');
+const { recordAuthFailure } = require('../services/metricsService');
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  PROTECT MIDDLEWARE
@@ -29,6 +30,7 @@ const protect = async (req, res, next) => {
     }
 
     if (!token) {
+      recordAuthFailure('missing_token', 'http');
       return errorResponse(
         res,
         401,
@@ -43,6 +45,7 @@ const protect = async (req, res, next) => {
     const currentUser = await User.findById(decoded.id);
 
     if (!currentUser) {
+      recordAuthFailure('user_not_found', 'http');
       return errorResponse(
         res,
         401,
@@ -51,6 +54,7 @@ const protect = async (req, res, next) => {
     }
 
     if (!currentUser.isActive) {
+      recordAuthFailure('inactive_user', 'http');
       return errorResponse(
         res,
         403,
@@ -62,6 +66,7 @@ const protect = async (req, res, next) => {
     req.user = currentUser;
     next();
   } catch (error) {
+    recordAuthFailure(error.name || 'token_error', 'http');
     // Let the global error handler normalize JWT-specific errors
     next(error);
   }
@@ -82,6 +87,7 @@ const protect = async (req, res, next) => {
 const authorizeRoles = (...roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
+      recordAuthFailure('role_denied', 'http');
       return errorResponse(
         res,
         403,

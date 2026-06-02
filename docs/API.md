@@ -72,6 +72,27 @@ Returns `503` if MongoDB or Redis is not connected.
 
 Summary endpoint containing liveness, readiness, version, uptime, and dependency state.
 
+### GET `/api/metrics`
+
+Prometheus scrape endpoint. Exposes process metrics, HTTP request counts,
+request latency histograms, auth failure counts, cache hit/miss counters,
+BullMQ job lifecycle counters, queue backlog gauges, dependency readiness, and
+Socket.IO event counters.
+
+Key metric names:
+
+| Metric | Meaning |
+|--------|---------|
+| `freightflow_http_requests_total` | API request count by method, route, status |
+| `freightflow_http_request_errors_total` | API 4xx/5xx count |
+| `freightflow_http_request_duration_seconds` | API latency histogram |
+| `freightflow_auth_failures_total` | Auth/authz failure count |
+| `freightflow_dependency_ready` | MongoDB and Redis readiness gauge |
+| `freightflow_queue_jobs_total` | BullMQ job lifecycle count |
+| `freightflow_queue_backlog` | BullMQ backlog by queue and state |
+| `freightflow_cache_operations_total` | Redis cache hit/miss count |
+| `freightflow_socket_events_total` | Socket.IO lifecycle and event count |
+
 ---
 
 ## Auth — `/api/auth`

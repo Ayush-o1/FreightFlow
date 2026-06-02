@@ -3,6 +3,8 @@
 const { Queue, QueueEvents } = require('bullmq');
 const { createIORedisConnection } = require('../config/redis');
 const logger = require('../config/logger');
+const { recordQueueJob } = require('../services/metricsService');
+const { runWithSpan } = require('../config/tracing');
 const {
   AUDIT_QUEUE,
   FUTURE_PAYMENT_QUEUE,
@@ -40,13 +42,34 @@ const getQueueConnection = () => {
 
 const getQueue = (name) => {
   if (!queues.has(name)) {
-    queues.set(
-      name,
-      new Queue(name, {
-        connection: getQueueConnection(),
-        defaultJobOptions,
-      })
-    );
+    const queue = new Queue(name, {
+      connection: getQueueConnection(),
+      defaultJobOptions,
+    });
+    const originalAdd = queue.add.bind(queue);
+
+    queue.add = async (jobName, data, options) =>
+      runWithSpan(
+        'queue.enqueue',
+        {
+          'messaging.system': 'bullmq',
+          'messaging.destination.name': name,
+          'messaging.operation': 'publish',
+          'freightflow.queue.job_name': jobName,
+        },
+        async () => {
+          try {
+            const job = await originalAdd(jobName, data, options);
+            recordQueueJob(name, 'enqueued');
+            return job;
+          } catch (error) {
+            recordQueueJob(name, 'enqueue_failed');
+            throw error;
+          }
+        }
+      );
+
+    queues.set(name, queue);
   }
 
   return queues.get(name);
@@ -59,7 +82,12 @@ const getQueueEvents = (name) => {
     });
 
     events.on('failed', ({ jobId, failedReason }) => {
+      recordQueueJob(name, 'failed');
       logger.warn({ queue: name, jobId, failedReason }, 'Queue job failed');
+    });
+
+    events.on('completed', () => {
+      recordQueueJob(name, 'completed');
     });
 
     queueEvents.set(name, events);

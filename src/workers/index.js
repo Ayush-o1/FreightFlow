@@ -2,6 +2,7 @@
 
 const logger = require('../config/logger');
 const { getRecoveryQueue } = require('../queues');
+const { recordQueueJob } = require('../services/metricsService');
 const { createAuditWorker } = require('./auditWorker');
 const { createNotificationWorker } = require('./notificationWorker');
 const { createOutboxWorker } = require('./outboxWorker');
@@ -16,10 +17,12 @@ const getConcurrency = () => {
 
 const attachWorkerLogging = (worker, name) => {
   worker.on('completed', (job) => {
+    recordQueueJob(name, 'completed');
     logger.debug({ queue: name, jobId: job.id }, 'Worker job completed');
   });
 
   worker.on('failed', (job, error) => {
+    recordQueueJob(name, 'failed');
     logger.warn({ queue: name, jobId: job?.id, err: error }, 'Worker job failed');
   });
 };

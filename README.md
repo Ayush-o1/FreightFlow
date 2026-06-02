@@ -570,7 +570,39 @@ Frontend CI:
 - coverage
 - production audit
 
+Platform CI also validates Docker builds, scans container images, scans for
+secrets, validates Kubernetes manifests, and validates Terraform. Optional
+deployment is behind a manual production environment gate.
+
 CodeQL and Dependabot are configured for security scanning and dependency updates.
+
+---
+
+## ☁️ Cloud-Native Operations
+
+Phase 7 platform assets:
+
+| Area | Path |
+|---|---|
+| Backend container | `Dockerfile` |
+| Frontend Nginx container | `client/Dockerfile`, `client/nginx.conf` |
+| Compose stacks | `docker-compose.yml`, `docker-compose.prod.yml` |
+| Kubernetes manifests | `k8s/` |
+| Terraform foundation | `infra/terraform/` |
+| Prometheus rules/config | `monitoring/prometheus/` |
+| Grafana dashboards | `monitoring/grafana/dashboards/` |
+| Backup/restore | `scripts/backup/` |
+| Load tests | `load-tests/` |
+| Runbooks | `runbooks/` |
+
+Prometheus metrics are exposed at `/api/metrics`. Health endpoints remain
+`/api/live`, `/api/ready`, and `/api/health`.
+
+Operational docs:
+
+- `docs/DEPLOYMENT.md`
+- `docs/OPERATIONS.md`
+- `docs/DISASTER_RECOVERY.md`
 
 ---
 

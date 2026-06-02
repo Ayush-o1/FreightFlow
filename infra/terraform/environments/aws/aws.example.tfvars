@@ -1,0 +1,10 @@
+project_name         = "freightflow"
+environment          = "production"
+region               = "us-east-1"
+vpc_cidr             = "10.40.0.0/16"
+public_subnet_cidrs  = ["10.40.0.0/24", "10.40.1.0/24"]
+private_subnet_cidrs = ["10.40.10.0/24", "10.40.11.0/24"]
+backend_replicas     = 3
+frontend_replicas    = 2
+mongodb_storage_gb   = 100
+redis_node_type      = "cache.t4g.small"

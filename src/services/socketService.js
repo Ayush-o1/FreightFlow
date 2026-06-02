@@ -50,6 +50,8 @@ const { setIO }  = require('../utils/getIO');
 const { COOKIE_NAMES, buildAllowedOrigins } = require('../config/security');
 const logger = require('../config/logger');
 const { createRedisDuplicate } = require('../config/redis');
+const { recordAuthFailure, recordSocketEvent } = require('./metricsService');
+const { runWithSpan } = require('../config/tracing');
 
 // ── Dev-only logger ───────────────────────────────────────────────────────────
 const isDev = process.env.NODE_ENV !== 'production';
@@ -145,19 +147,29 @@ const initSocket = async (httpServer) => {
   // Note: cookie-parser does NOT run on socket handshakes. We parse manually.
   io.use(async (socket, next) => {
     try {
+      await runWithSpan(
+        'socket.authenticate',
+        {
+          'network.protocol.name': 'socket.io',
+          'freightflow.socket.id': socket.id,
+          'freightflow.request_id': socket.handshake.headers?.['x-request-id'] || 'unknown',
+        },
+        async () => {
       const rawCookies = socket.handshake.headers?.cookie || '';
       const cookies    = parseCookies(rawCookies);
       const token      = cookies[COOKIE_NAMES.access];
 
       if (!token) {
-        return next(new Error('Authentication error: No access token provided.'));
+        recordAuthFailure('missing_token', 'socket');
+        throw new Error('Authentication error: No access token provided.');
       }
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       const currentUser = await User.findById(decoded.id).select('_id name role isActive');
 
       if (!currentUser || !currentUser.isActive) {
-        return next(new Error('Authentication error: User is inactive or no longer exists.'));
+        recordAuthFailure(currentUser ? 'inactive_user' : 'user_not_found', 'socket');
+        throw new Error('Authentication error: User is inactive or no longer exists.');
       }
 
       socket.data.user = {
@@ -165,23 +177,41 @@ const initSocket = async (httpServer) => {
         name: currentUser.name,
         role: currentUser.role,
       };
+      socket.data.requestId = socket.handshake.headers?.['x-request-id'] || null;
       devLog('Socket auth OK', { userId: socket.data.user.id });
+        }
+      );
 
       next();
     } catch (err) {
       // Covers: JsonWebTokenError, TokenExpiredError, malformed cookies
+      if (!String(err.message).startsWith('Authentication error:')) {
+        recordAuthFailure(err.name || 'token_error', 'socket');
+      }
       next(new Error(`Authentication error: ${err.message}`));
     }
   });
 
   // ── Connection lifecycle ───────────────────────────────────────────────────
   io.on('connection', (socket) => {
+    recordSocketEvent('connection', 'client', 'accepted');
     devLog('Socket connected', { socketId: socket.id, userId: socket.data.user.id });
 
     // ── Client → Server: join a shipment room ────────────────────────────────
     socket.on('joinShipmentRoom', async ({ shipmentId } = {}, ack) => {
       try {
+        await runWithSpan(
+          'socket.join_shipment_room',
+          {
+            'network.protocol.name': 'socket.io',
+            'freightflow.socket.id': socket.id,
+            'freightflow.shipment_id': shipmentId || 'unknown',
+            'freightflow.user_id': socket.data.user.id,
+            'freightflow.request_id': socket.data.requestId || 'unknown',
+          },
+          async () => {
         if (!shipmentId || !mongoose.Types.ObjectId.isValid(shipmentId)) {
+          recordSocketEvent('joinShipmentRoom', 'client', 'invalid');
           return emitRoomError(socket, ack, shipmentId, 'Invalid shipment room.');
         }
 
@@ -190,10 +220,12 @@ const initSocket = async (httpServer) => {
           .lean();
 
         if (!shipment) {
+          recordSocketEvent('joinShipmentRoom', 'client', 'not_found');
           return emitRoomError(socket, ack, shipmentId, 'Shipment not found.');
         }
 
         if (!canJoinShipmentRoom(socket.data.user, shipment)) {
+          recordSocketEvent('joinShipmentRoom', 'client', 'denied');
           return emitRoomError(
             socket,
             ack,
@@ -204,9 +236,13 @@ const initSocket = async (httpServer) => {
 
         const room = `shipment_${shipmentId}`;
         socket.join(room);
+        recordSocketEvent('joinShipmentRoom', 'client', 'success');
         if (typeof ack === 'function') ack({ success: true, shipmentId });
         devLog('Socket joined shipment room', { socketId: socket.id, room });
+          }
+        );
       } catch (error) {
+        recordSocketEvent('joinShipmentRoom', 'client', 'error');
         emitRoomError(socket, ack, shipmentId, 'Unable to join shipment room.');
         devLog('Socket room join failed', { err: error, shipmentId });
       }
@@ -217,11 +253,13 @@ const initSocket = async (httpServer) => {
       if (!shipmentId) return;
       const room = `shipment_${shipmentId}`;
       socket.leave(room);
+      recordSocketEvent('leaveShipmentRoom', 'client', 'success');
       devLog('Socket left shipment room', { socketId: socket.id, room });
     });
 
     // ── Disconnect ───────────────────────────────────────────────────────────
     socket.on('disconnect', (reason) => {
+      recordSocketEvent('disconnect', 'client', reason || 'unknown');
       devLog('Socket disconnected', { socketId: socket.id, reason });
     });
   });

@@ -2,6 +2,7 @@
 
 const { getRedisClient } = require('../config/redis');
 const logger = require('../config/logger');
+const { recordCacheOperation } = require('./metricsService');
 
 const DEFAULT_TTL_SECONDS = 300;
 
@@ -15,10 +16,12 @@ const getJsonCache = async (key) => {
   const cached = await client.get(key);
 
   if (!cached) {
+    recordCacheOperation('get', 'miss');
     logger.debug({ key }, 'Redis cache miss');
     return null;
   }
 
+  recordCacheOperation('get', 'hit');
   logger.debug({ key }, 'Redis cache hit');
   return JSON.parse(cached);
 };

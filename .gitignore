@@ -35,3 +35,6 @@ freightflow-backend/smokeTest*.js
 # ── Misc ─────────────────────────────────────────────────────────────────────
 *.pem
 .npm
+.tmp/
+**/.terraform/
+*.tfplan
