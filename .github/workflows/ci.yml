@@ -137,7 +137,7 @@ jobs:
             -strict -summary -ignore-missing-schemas /work/.tmp/freightflow-k8s.yaml
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
 
       - name: Terraform init
         run: terraform -chdir=infra/terraform init -backend=false
